@@ -1,36 +1,56 @@
 const chai = require('chai');
 const chaiHttp = require('chai-http');
-const server = require('../app');
+const server = require('../dist/app');
 const should = chai.should();
 
-//console.log(server);
+const email = 'justinfrancos@gmail.com';
+const password = 'ifthisislongenoughdictionarywordsarefine';
+const token = 'tok_visa';
 
 chai.use(chaiHttp);
 
-describe('signup', function() {
-  describe('with weak password', function() {
-    it('should return an error', function(done) {
-    	chai.request(server)
-    	  .post('/signup')
-    	  .send({username: 'justinfrancos@gmail.com', password: 'my password'})
-    	  .end(function(err, res) {
-    	  	res.body.should.include.key('error');
-        	res.should.have.status(200);
-        done();
-      });
+tests = [
+
+['with weak password',                            { password: 'mypassword3', stripe_token: token, email: email }],
+['with missing password',                         { email: email, stripe_token: token }],
+['with missing token',                            { password: password, email: email}],
+['with bad token',                                { password: password, email: email, stripe_token: 'asdf'}],
+['with missing email',                            { password: password, stripe_token: token}],
+['with bad email',                                { password: password, stripe_token: token, email: 'asdf'}],
+['with blank email',                              { email: '', password: password, stripe_token: token}],
+['with blank token',                              { email: email, password: password, stripe_token: ''}],
+['with blank password',                           { email: email, password: '', stripe_token: token}],
+['with card fails after successful attachment',   { email: email, password: password, stripe_token: 'tok_chargeCustomerFail' }]
+
+]
+
+describe('signup', () => {
+  tests.forEach((test) => {
+    describe(test[0], function() {
+      it('should return an error', (done) => {
+        chai.request(server)
+        .post('/signup')
+        .send(test[1])
+        .end(function(err, res) {
+          res.body.should.include.key('error');
+          res.should.have.status(200);
+          done();
+        });
+      }).timeout(4000);
     });
   });
-  describe('with valid parameters', function() {
-  it('should return 200', function(done) {
-    chai.request(server)
+
+  describe('with valid parameters', () => {
+    it('should return 200 and no error', (done) => {
+      chai.request(server)
       .post('/signup')
-      .send({username: 'jfrancos', password: 'ifthisislongenoughdictionarywordsarefine'})
+      .send({email: email, password: password, stripe_token: token})
       .end(function(err, res) {
         res.body.should.not.include.key('error');
         res.should.have.status(200);
-      done();
-    });
+        done();
+      });
+    }).timeout(4000);
   });
-});
 });
 
