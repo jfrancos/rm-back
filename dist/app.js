@@ -11,39 +11,45 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-require("reflect-metadata");
-const stripe_1 = __importDefault(require("stripe"));
 const body_parser_1 = __importDefault(require("body-parser"));
 const express_1 = __importDefault(require("express"));
 const helmet_1 = __importDefault(require("helmet"));
 const joi_1 = __importDefault(require("joi"));
+const mongodb_1 = __importDefault(require("mongodb"));
+//var nock = require('nock');
 const sodium = require('sodium');
+const stripe_1 = __importDefault(require("stripe"));
 const zxcvbn_1 = __importDefault(require("zxcvbn"));
 const stripe = new stripe_1.default("sk_test_4vUzfLsfzZ7ffojQgISR1ntd");
+const url = 'mongodb://localhost:27017';
+const token_window = 60000;
+const port = process.env.PORT || 3000;
+const plan = 'plan_DrPVwslmSpiOT4';
+const app = express_1.default();
+let users;
+(() => __awaiter(this, void 0, void 0, function* () {
+    const server = yield mongodb_1.default.connect(url, { useNewUrlParser: true });
+    const db = server.db('rhythmandala');
+    users = yield db.collection('users');
+}))();
 const generateKey = (len) => {
     const key = Buffer.allocUnsafe(len);
     sodium.api.randombytes_buf(key, len);
     return key;
 };
-const generateTokenDict = () => {
-    const key = Buffer.concat([sibling_key, user_key]);
+const generateTokenDict = (key) => {
     const auth = new sodium.Auth(key);
     const valid_until = (Date.now() + token_window).toString();
     const mac = auth.generate(valid_until).toString('base64');
     return ({ mac: mac, valid_until: valid_until });
 };
-const token_window = 60000;
-const port = process.env.PORT || 3000;
-const app = express_1.default();
-const plan = 'plan_DrPVwslmSpiOT4';
 let sibling_key = generateKey(16);
-let customer;
 app.use(helmet_1.default());
 app.use(body_parser_1.default.json());
-let hash, user_key;
-app.use('/auth', (req, res, next) => {
-    const key = Buffer.concat([sibling_key, user_key]);
-    const auth = new sodium.Auth(key);
+app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* () {
+    const email = req.body.email;
+    const user = yield users.findOne({ email: req.body.email });
+    const auth = new sodium.Auth(user['key'].buffer);
     const mac = Buffer.from(req.body.mac, 'base64');
     const valid_until = req.body.valid_until;
     const isValid = auth.validate(mac, valid_until);
@@ -53,40 +59,40 @@ app.use('/auth', (req, res, next) => {
     else {
         next();
     }
-});
-app.post('/auth/delete', (req, res) => {
-    stripe.customers.del(customer.id).catch((err) => console.log('Customer deletion error:\n', (({ rawType, code, param, message, detail }) => ({ rawType, code, param, message, detail }))(err)));
-    res.send();
-});
-app.post('/auth/test', (req, res) => {
-    res.send(generateTokenDict());
-});
-app.post('/auth/refresh_auth_key', (req, res) => {
-    user_key = generateKey(16);
+}));
+// app.post('/auth/delete', (req: Request, res: Response) => {
+// 	stripe.customers.del(customer.id).catch((err) => console.log('Customer deletion error:\n',
+// 		(({ rawType, code, param, message, detail }) => ({ rawType, code, param, message, detail }))(err)));
+// 	res.send();
+// });
+app.post('/auth/test', (req, res) => __awaiter(this, void 0, void 0, function* () {
+    const email = req.body.email;
+    const user = yield users.findOne({ email: req.body.email });
+    res.send(generateTokenDict(user['key'].buffer));
+}));
+app.post('/auth/refresh_auth_key', (req, res) => __awaiter(this, void 0, void 0, function* () {
+    const email = req.body.email;
+    const user = yield users.findOneAndUpdate({ email: req.body.email }, { $set: { key: generateKey(32) } });
     res.send({ message: 'invalid' });
-});
+}));
 app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
-    customer = null;
     const validation = signup_schema.validate(req.body);
     if (validation.error) {
         console.log('validation error', validation.error.details[0].message);
         res.send({ error: 'validation_error' });
         return;
     }
-    const email = req.body.email;
-    const password = req.body.password;
-    const stripe_token = req.body.stripe_token;
+    const { email, password, stripe_token } = req.body;
     const score = zxcvbn_1.default(req.body.password).score;
     if (score < 3) {
         console.log(`SIGNUP_WEAK_PASSWORD: signup attempted with email [${email}] and a password with a score of ${score}/4`);
         res.send({ error: 'Your proposed password is too weak.  <a href="https://xkpasswd.net">Consider using this tool to generate a secure, memorable password.</a>' });
         return;
     }
-    yield stripe.customers.create({
+    const customer = yield stripe.customers.create({
         source: stripe_token,
-        email: email
+        email
     })
-        .then((cust) => customer = cust)
         .catch((err) => console.log("Customer creation error:\n", (({ code, param, message }) => ({ code, param, message }))(err)));
     if (!customer) {
         console.log(`SIGNUP_STRIPE_CUSTOMER_NOT_CREATED`);
@@ -104,25 +110,28 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
         return;
     }
     console.log(`SIGNUP_SUCCESSFUL: with username [${email}] and password score ${score}/4`);
-    hash = sodium.api.crypto_pwhash_str(Buffer.from(req.body.password), sodium.api.crypto_pwhash_OPSLIMIT_SENSITIVE, sodium.api.crypto_pwhash_MEMLIMIT_INTERACTIVE);
-    user_key = generateKey(16);
+    const hash = sodium.api.crypto_pwhash_str(Buffer.from(req.body.password), sodium.api.crypto_pwhash_OPSLIMIT_SENSITIVE, sodium.api.crypto_pwhash_MEMLIMIT_INTERACTIVE);
+    users.insertOne({ email: email, pwhash: hash, stripe_cust: customer.id, key: generateKey(32) });
+    const user = yield users.find({ email: email }).toArray();
     res.send();
 }));
 app.post('/login', function (req, res) {
-    const isValid = sodium.api.crypto_pwhash_str_verify(hash, Buffer.from(req.body.password));
-    const username = req.body.username;
-    if (isValid) {
-        const key = Buffer.concat([sibling_key, user_key]);
-        const auth = new sodium.Auth(key);
-        const valid_until = (Date.now() + token_window).toString();
-        const mac = auth.generate(valid_until);
-        console.log(`LOGIN_SUCCESSFUL: with username [${username}]`);
-        res.send({ valid_until: valid_until, mac: mac.toString('base64') });
-    }
-    else {
-        console.log(`LOGIN_FAILED: with username [${username}]`);
-        res.send({ error: 'Login error' });
-    }
+    return __awaiter(this, void 0, void 0, function* () {
+        const user = yield users.findOne({ email: req.body.email });
+        const isValid = sodium.api.crypto_pwhash_str_verify(user['pwhash'].buffer, Buffer.from(req.body.password));
+        const email = req.body.email;
+        if (isValid) {
+            const auth = new sodium.Auth(user['key'].buffer);
+            const valid_until = (Date.now() + token_window).toString();
+            const mac = auth.generate(valid_until);
+            console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
+            res.send({ valid_until: valid_until, mac: mac.toString('base64') });
+        }
+        else {
+            console.log(`LOGIN_FAILED: with username [${email}]`);
+            res.send({ error: 'Login error' });
+        }
+    });
 });
 const signup_schema = joi_1.default.object().keys({
     password: joi_1.default.string().required(),

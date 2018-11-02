@@ -2,10 +2,11 @@ const chai = require('chai');
 const chaiHttp = require('chai-http');
 const server = require('../dist/app');
 const should = chai.should();
-
+//import nock from 'nock';
+nock = require('nock')
 const email = 'justinfrancos@gmail.com';
 const password = 'ifthisislongenoughdictionarywordsarefine';
-const token = 'tok_visa';
+const token = 'tok_visa_debit';
 
 chai.use(chaiHttp);
 
@@ -24,10 +25,18 @@ tests = [
 
 ]
 
+
+
 describe('signup', () => {
   tests.forEach((test) => {
     describe(test[0], function() {
+
+
       it('should return an error', (done) => {
+            nock('https://api.stripe.com:443', { allowUnmocked: true })
+            .filteringPath(() => '').delete('')
+            .reply(400, {"error":{"code":"resourchello","doc_url":"https://stripe.com/docs/error-codes/resource-missing","message":"No such customer: pizza","param":"id","type":"invalid_request_error"}})
+            
         chai.request(server)
         .post('/signup')
         .send(test[1])

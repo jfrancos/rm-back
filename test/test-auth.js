@@ -8,7 +8,7 @@ chai.use(chaiHttp);
 
 
 describe('sending auth token', function() {
-	this.timeout(5000);
+	this.timeout(6000);
 	let answer;
 	let clock;
 	beforeEach(function () {
@@ -31,7 +31,7 @@ describe('sending auth token', function() {
 			clock.tick(50000);
 			chai.request(server)
 			.post('/auth/test')
-			.send({mac: answer.mac, valid_until: answer.valid_until})
+			.send({email: 'justinfrancos@gmail.com', mac: answer.mac, valid_until: answer.valid_until})
 			.end(function(err, res) {
 				res.body.should.include.keys('valid_until', 'mac');
 				res.should.have.status(200);
@@ -44,7 +44,7 @@ describe('sending auth token', function() {
 			clock.tick(70000);
 			chai.request(server)
 			.post('/auth/test')
-			.send({mac: answer.mac, valid_until: answer.valid_until})
+			.send({email: 'justinfrancos@gmail.com', mac: answer.mac, valid_until: answer.valid_until})
 			.end(function(err, res) {
 				res.body.should.not.include.keys('valid_until', 'mac');
 				res.body.should.include.key('error');
@@ -57,12 +57,12 @@ describe('sending auth token', function() {
 		beforeEach(async function() {
 			await chai.request(server)
 			.post('/auth/refresh_auth_key')
-			.send({mac: answer.mac, valid_until: answer.valid_until});
+			.send({email: 'justinfrancos@gmail.com', mac: answer.mac, valid_until: answer.valid_until});
 		});
 		it('does not accept mac+valid_until', function(done) {
 			chai.request(server)
 			.post('/auth/test')
-			.send({mac: answer.mac, valid_until: answer.valid_until})
+			.send({email: 'justinfrancos@gmail.com', mac: answer.mac, valid_until: answer.valid_until})
 			.end(function(err, res) {
 				res.body.should.not.include.keys('valid_until', 'mac');
 				res.body.should.include.key('error');
