@@ -8,7 +8,8 @@ import mailgun from 'mailgun-js';
 import mongodb from 'mongodb';
 //var nock = require('nock');
 const sodium = require('sodium');
-import Stripe, { IStripeError } from 'stripe';
+import Stripe, { IStripeError, customers, subscriptions } from 'stripe';
+//import * as Stripe from 'stripe';
 import zxcvbn from 'zxcvbn';
 
 const stripe = new Stripe("sk_test_4vUzfLsfzZ7ffojQgISR1ntd");
@@ -89,28 +90,37 @@ app.post('/signup', async (req: Request, res: Response) => {
 		res.send({ error: 'Your proposed password is too weak.  <a href="https://xkpasswd.net">Consider using this tool to generate a secure, memorable password.</a>' })
 		return;
 	}
-	const customer = await stripe.customers.create({
-		source: stripe_token,
-		email
-	})
-	.catch((err: IStripeError) => console.log("Customer creation error:\n", (({ code, param, message }) => ({  code, param, message }))(err)));
-	if (!customer) {
-		console.log(`SIGNUP_STRIPE_CUSTOMER_NOT_CREATED`);
-		res.send({ error: "CUSTOMER_NOT_CREATED" });
+	let customer: customers.ICustomer,
+		subscription: subscriptions.ISubscription;
+	try {
+		customer = await stripe.customers.create({
+			source: stripe_token, email
+		});
+	//	console.log('Stripe customer created');
+		subscription = await stripe.subscriptions.create({
+			customer: customer.id,
+			items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
+		})
+	} catch(err) {
+		console.log(err);
+	//	console.log("Customer creation error:\n", (({ code, param, message }) => ({  code, param, message }))(err));
+	//	console.log(`SIGNUP_STRIPE_CUSTOMER_NOT_CREATED`);
+		if (customer && !subscription) {
+			 stripe.customers.del(customer.id).catch((err: IStripeError) => console.log('Customer deletion error:\n',
+	 		(({ code, param, message }) => ({ code, param, message }))(err)));
+		}
+		res.send({ error: "SIGNUP_ERROR" });
 		return;
 	}
-	const subscription = await stripe.subscriptions.create({
-		customer: customer.id,
-		items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
-	}).catch((err: IStripeError) => console.log("Subscription creation error:\n", { code: err.code, param: err.param, message: err.message } ));
-	if (!subscription) {
-		console.log(`SIGNUP_STRIPE_SUBSCRIPTION_NOT_CREATED`);
-		stripe.customers.del(customer.id).catch((err: IStripeError) => console.log('Customer deletion error:\n',
-			(({ code, param, message }) => ({ code, param, message }))(err)));
-		res.send({ error: "SUBSCRIPTION_NOT_CREATED" });
-		return;
-	}
-	console.log(`SIGNUP_SUCCESSFUL: with username [${email}] and password score ${score}/4`)
+//	.catch((err: IStripeError) => console.log("Subscription creation error:\n", { code: err.code, param: err.param, message: err.message } ));
+	// if (!subscription) {
+	// 	console.log(`SIGNUP_STRIPE_SUBSCRIPTION_NOT_CREATED`);
+	// 	stripe.customers.del(customer.id).catch((err: IStripeError) => console.log('Customer deletion error:\n',
+	// 		(({ code, param, message }) => ({ code, param, message }))(err)));
+	// 	res.send({ error: "SUBSCRIPTION_NOT_CREATED" });
+	// 	return;
+//	}
+//	console.log(`SIGNUP_SUCCESSFUL: with username [${email}] and password score ${score}/4`)
 	const hash = sodium.api.crypto_pwhash_str(
  		Buffer.from(req.body.password),
 	 	sodium.api.crypto_pwhash_OPSLIMIT_SENSITIVE,
