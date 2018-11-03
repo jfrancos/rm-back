@@ -5,7 +5,8 @@
   "main": "app.js",
   "scripts": {
     "test": "nyc mocha --exit",
-    "start": "node dist/app.js"
+    "start": "node dist/app.js",
+    "coveralls": "cat ./coverage/lcov.info | node node_modules/.bin/coveralls"
   },
   "author": "",
   "license": "ISC",

@@ -1,0 +1,1 @@
+[![Coverage Status](https://coveralls.io/repos/github/jfrancos/rm-back/badge.svg?t=7FpcCM)](https://coveralls.io/github/jfrancos/rm-back)
