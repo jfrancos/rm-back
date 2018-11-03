@@ -3,51 +3,45 @@ import assert from 'assert';
 import bodyParser from 'body-parser';
 import express, { Request, Response, NextFunction, Application } from "express";
 import helmet from 'helmet';
-import joi from 'joi';
-import mailgun from 'mailgun-js';
+///var mailgun = require('mailgun-js')({apiKey: api_key, domain: DOMAIN});
+import plainJoi from 'joi';
+const joiZxcvbn = require('joi-zxcvbn');
+import Mailgun from 'mailgun-js';
 import mongodb from 'mongodb';
-//var nock = require('nock');
 const sodium = require('sodium');
-import Stripe, { IStripeError, customers, subscriptions } from 'stripe';
-//import * as Stripe from 'stripe';
+import Stripe, { IStripeError, customers, subscriptions, ICard } from 'stripe';
 import zxcvbn from 'zxcvbn';
+const domain = 'mg.rhythmandala.com'
+const apiKey = 'key-3c12a1a4a66379e3a57c2da935b91141'
 
+type Customer = customers.ICustomer;
+type Subscription = subscriptions.ISubscription;
+
+const mailgun = new Mailgun({apiKey, domain});
 const stripe = new Stripe("sk_test_4vUzfLsfzZ7ffojQgISR1ntd");
 const url = 'mongodb://localhost:27017';
 const token_window = 60000;
 const port = process.env.PORT || 3000;
 const plan = 'plan_DrPVwslmSpiOT4';
 const app: express.Application = express();
+const joi = plainJoi.extend(joiZxcvbn(plainJoi));
 let users: mongodb.Collection;
-
-(async () => {
-	const server = await mongodb.connect(url, { useNewUrlParser: true });
-	const db = server.db('rhythmandala');
-	users = await db.collection('users');
-})();
-
-const generateKey = (len: number) => {
-  const key = Buffer.allocUnsafe(len);
-  sodium.api.randombytes_buf(key, len);
-  return key;
-};
-
-const generateTokenDict = (key: string) => {
-	const auth = new sodium.Auth(key);
-	const valid_until = (Date.now() + token_window).toString()
-	const mac = auth.generate(valid_until).toString('base64');
-	return ({ mac: mac, valid_until: valid_until});
-};
-
-let sibling_key = generateKey(16);
 
 app.use(helmet())
 app.use(bodyParser.json());
 
+let server
+
+(async () => {
+	server = await mongodb.connect(url, { useNewUrlParser: true });
+	const db = server.db('rhythmandala');
+	users = await db.collection('users');
+})();
+
 app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
-	const email = req.body.email;
+	const { email } = req.body;
 	const user = await users.findOne({email: req.body.email});
-	const auth = new sodium.Auth(user['key'].buffer);
+	const auth = new sodium.Auth(user['signing_key'].buffer);
 	const mac = Buffer.from(req.body.mac, 'base64');
 	const valid_until = req.body.valid_until;
 	const isValid = auth.validate(mac, valid_until);
@@ -67,75 +61,113 @@ app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 app.post('/auth/test', async (req: Request, res: Response) => {
 	const email = req.body.email;
 	const user = await users.findOne({email: req.body.email});
-	res.send(generateTokenDict(user['key'].buffer));
+	res.send(generateTokenDict(user['signing_key'].buffer));
 });
 
 app.post('/auth/refresh_auth_key', async (req: Request, res: Response) => {
 	const email = req.body.email;
-	const user = await users.findOneAndUpdate({email: req.body.email}, {$set: {key: generateKey(32)}});
+	const user = await users.findOneAndUpdate({email: req.body.email}, {$set: {signing_key: generateKey(32)}});
 	res.send({ message: 'invalid' });
 });
 
 app.post('/signup', async (req: Request, res: Response) => {
 	const validation = signup_schema.validate(req.body)
 	if (validation.error) {
-		console.log('validation error', validation.error.details[0].message);
-		res.send({error: 'validation_error'});
+		console.error('SIGNUP: validation error', validation.error.details[0]);
+		res.status(400).json(validation.error.details[0]);
 		return;
 	}
-	const { email, password, stripe_token } = req.body;
-	const score = zxcvbn(password).score;
-	if (score < 3) {
-		console.log(`SIGNUP_WEAK_PASSWORD: signup attempted with email [${email}] and a password with a score of ${score}/4`)
-		res.send({ error: 'Your proposed password is too weak.  <a href="https://xkpasswd.net">Consider using this tool to generate a secure, memorable password.</a>' })
-		return;
-	}
-	let customer: customers.ICustomer,
-		subscription: subscriptions.ISubscription;
+	const { email, password, source } = validation.value;
+	//const user = await users.findOne({email: email});
+	// if (user) {
+	// 	res.status(400).json({ error: "user already exists"});
+	// }
+	let customer: Customer, subscription: Subscription;
 	try {
-		customer = await stripe.customers.create({
-			source: stripe_token, email
-		});
-	//	console.log('Stripe customer created');
+		console.log('Awaiting customer creation');
+		customer = await stripe.customers.create({ source, email });
+		console.log('Awaiting subscription creation');
 		subscription = await stripe.subscriptions.create({
 			customer: customer.id,
 			items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
-		})
-	} catch(err) {
-		console.log(err);
-	//	console.log("Customer creation error:\n", (({ code, param, message }) => ({  code, param, message }))(err));
-	//	console.log(`SIGNUP_STRIPE_CUSTOMER_NOT_CREATED`);
-		if (customer && !subscription) {
-			 stripe.customers.del(customer.id).catch((err: IStripeError) => console.log('Customer deletion error:\n',
-	 		(({ code, param, message }) => ({ code, param, message }))(err)));
+		});
+	} catch (err) {
+		const error = distillError(err)
+		if (!customer) {
+			console.error(`SIGNUP: Error creating customer [${email}]:\n`, error);
+		} else {
+			console.error(`SIGNUP: Error creating subscription for [${email}]):\n`, error)
+			try {
+				await stripe.customers.del(customer.id);
+			} catch (err) {
+				console.error('SIGNUP: Customer deletion error:\n', distillError(err));
+			}
 		}
-		res.send({ error: "SIGNUP_ERROR" });
-		return;
+		res.status(400).json(error);
+	 	return;
 	}
-//	.catch((err: IStripeError) => console.log("Subscription creation error:\n", { code: err.code, param: err.param, message: err.message } ));
-	// if (!subscription) {
-	// 	console.log(`SIGNUP_STRIPE_SUBSCRIPTION_NOT_CREATED`);
-	// 	stripe.customers.del(customer.id).catch((err: IStripeError) => console.log('Customer deletion error:\n',
-	// 		(({ code, param, message }) => ({ code, param, message }))(err)));
-	// 	res.send({ error: "SUBSCRIPTION_NOT_CREATED" });
-	// 	return;
-//	}
-//	console.log(`SIGNUP_SUCCESSFUL: with username [${email}] and password score ${score}/4`)
+	const card = customer.sources.data.find(source => source.id === customer.default_source) as ICard
+	console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`)
 	const hash = sodium.api.crypto_pwhash_str(
  		Buffer.from(req.body.password),
 	 	sodium.api.crypto_pwhash_OPSLIMIT_SENSITIVE,
 		sodium.api.crypto_pwhash_MEMLIMIT_INTERACTIVE);
-	users.insertOne({email: email, pwhash: hash, stripe_cust: customer.id, key: generateKey(32)});
-	const user = await users.find({email: email}).toArray();
+	const confirmation_key = generateKey(32)
+	const user = await users.insertOne({
+		email: email,
+		pwhash: hash,
+		stripe_cust: customer.id,
+		signing_key: generateKey(32),
+		confirmation_key: confirmation_key,
+		brand: card.brand,
+		last4: card.last4,
+		exp_year: card.exp_year,
+		exp_month: card.exp_month
+	});
+
+	const data = {
+	  from: 'RhythMandala <signups@rhythmandala.com>',
+	  to: email,
+	  subject: 'Complete Signup',
+	  text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key.toString('base64')
+	};
+
+	console.log(confirmation_key.toString('base64'))
+
+	mailgun.messages().send(data, function (error, body) {
+	  console.log(body);
+	});
 	res.send();
 });
+
+// app.post('/confirm_email', async function(req: Request, res: Response) {
+// 	const validation = confirm_email_schema.validate(req.body)
+// 	if (validation.error) {
+// 		console.error('SIGNUP: validation error', validation.error.details[0]);
+// 		res.status(400).json(validation.error.details[0]);
+// 		return;
+// 	}
+// 	const { email, key } = validation.value;
+// 	const keyBuffer = Buffer.from(key, 'base64');
+// 	const user = await users.findOne({email});
+// 	if (keyBuffer.equals(user['confirmation_key'].buffer)) {
+// 		await users.findOneAndUpdate({email: email}, { $unset: { confirmation_key: ''}});
+// 		const auth = new sodium.Auth(user['key'].buffer);
+// 		const valid_until = (Date.now() + token_window).toString();
+// 		const mac = auth.generate(valid_until);
+// 		console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with username [${email}]`);
+// 		res.send( { valid_until: valid_until, mac: mac.toString('base64') } );
+// 	} else {
+// 		res.status(400).send();
+// 	}
+// })
 
 app.post('/login', async function (req: Request, res: Response) {
 	const user = await users.findOne({email: req.body.email});
 	const isValid = sodium.api.crypto_pwhash_str_verify(user['pwhash'].buffer, Buffer.from(req.body.password));
 	const email = req.body.email;
 	if (isValid) {
-		const auth = new sodium.Auth(user['key'].buffer);
+		const auth = new sodium.Auth(user['signing_key'].buffer);
 		const valid_until = (Date.now() + token_window).toString();
 		const mac = auth.generate(valid_until);
 		console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
@@ -147,11 +179,35 @@ app.post('/login', async function (req: Request, res: Response) {
 });
 
 const signup_schema = joi.object().keys({
-    password: joi.string().required(),
-    stripe_token: joi.string().required(),
+    password: joi.string().zxcvbn(3).required(),
+    source: joi.string().required(),
     email: joi.string().email().required()
 });
 
-module.exports = app.listen(port, function () {
+const confirm_email_schema = joi.object().keys({
+	email: joi.string().email().required(),
+	key: joi.string().required()
+})
+
+const generateTokenDict = (key: string) => {
+	const auth = new sodium.Auth(key);
+	const valid_until = (Date.now() + token_window).toString()
+	const mac = auth.generate(valid_until).toString('base64');
+	return ({ mac: mac, valid_until: valid_until});
+};
+
+const generateKey = (len: number) => {
+  const key = Buffer.allocUnsafe(len);
+  sodium.api.randombytes_buf(key, len);
+  return key;
+};
+
+function distillError(error: IStripeError) {
+	//console.log(error)
+	return (({ code, message, param, type }) => ({ code, message, param, type }))(error)
+}
+
+module.exports = { app: app.listen(port, function () {
   console.log(`Example app listening on port ${port}!`);
-});
+})
+}

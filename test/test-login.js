@@ -1,6 +1,6 @@
 const chai = require('chai');
 const chaiHttp = require('chai-http');
-const server = require('../dist/app');
+const server = require('../dist/app').app;
 const should = chai.should();
 
 chai.use(chaiHttp);
@@ -10,7 +10,7 @@ describe('invalid login', function() {
   this.timeout(4000);
   await chai.request(server)
        .post('/signup')
-       .send({email: 'justinfrancos@gmail.com', password: 'ifthisislongenoughdictionarywordsarefine', stripe_token: 'tok_visa'});
+       .send({email: 'justinfrancos@gmail.com', password: 'ifthisislongenoughdictionarywordsarefine', source: 'tok_visa'});
 });
   it('should not return a token', function(done) {
     chai.request(server)
@@ -30,7 +30,7 @@ describe('valid login', function() {
   this.timeout(4000);
   await chai.request(server)
        .post('/signup')
-       .send({email: 'justinfrancos@gmail.com', password: 'ifthisislongenoughdictionarywordsarefine', stripe_token: 'tok_visa'});
+       .send({email: 'justinfrancos@gmail.com', password: 'ifthisislongenoughdictionarywordsarefine', source: 'tok_visa'});
 });
   it('should return a token', function(done) {
     chai.request(server)

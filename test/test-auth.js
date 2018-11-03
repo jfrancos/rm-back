@@ -1,6 +1,6 @@
 const chai = require('chai');
 const chaiHttp = require('chai-http');
-const server = require('../dist/app');
+const server = require('../dist/app').app;
 const should = chai.should();
 const sinon = require('sinon');
 
@@ -18,7 +18,7 @@ describe('sending auth token', function() {
 		clock = sinon.useFakeTimers();
 		await chai.request(server)
 		.post('/signup')
-		.send({email: 'justinfrancos@gmail.com', password: 'ifthisislongenoughdictionarywordsarefine', stripe_token: 'tok_visa'});
+		.send({email: 'justinfrancos@gmail.com', password: 'ifthisislongenoughdictionarywordsarefine', source: 'tok_visa'});
 		await chai.request(server)
 		.post('/login')
 		.send({email: 'justinfrancos@gmail.com', password: 'ifthisislongenoughdictionarywordsarefine'})

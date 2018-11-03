@@ -4,8 +4,8 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "test": "nyc mocha",
-    "start": "node app.js"
+    "test": "nyc mocha --exit",
+    "start": "node dist/app.js"
   },
   "author": "",
   "license": "ISC",
@@ -25,6 +25,7 @@
     "express": "^4.16.3",
     "helmet": "^3.14.0",
     "joi": "^14.0.1",
+    "joi-zxcvbn": "^4.0.0",
     "knex": "^0.15.2",
     "libsodium": "^0.7.3",
     "libsodium-wrappers-sumo": "^0.7.3",
@@ -32,6 +33,7 @@
     "mongodb": "^3.1.8",
     "nock": "^10.0.1",
     "pg": "^7.6.0",
+    "query-string": "^6.2.0",
     "reflect-metadata": "^0.1.12",
     "save-svg-as-png": "^1.4.6",
     "sodium": "^2.0.3",
