@@ -33,6 +33,7 @@
     "libsodium": "^0.7.3",
     "libsodium-wrappers-sumo": "^0.7.3",
     "mailgun-js": "^0.21.0",
+    "mocha": "^5.2.0",
     "mongodb": "^3.1.8",
     "nock": "^10.0.1",
     "pg": "^7.6.0",
