@@ -6,6 +6,7 @@
   "scripts": {
     "test": "nyc mocha --exit",
     "start": "node dist/app.js",
+    "coverage": "node node_modules/.bin/istanbul cover _mocha -- -R spec",
     "coveralls": "cat ./coverage/lcov.info | node node_modules/.bin/coveralls"
   },
   "author": "",
@@ -23,6 +24,7 @@
     "@types/zxcvbn": "^4.4.0",
     "chai": "^4.2.0",
     "chai-http": "^4.2.0",
+    "coveralls": "^3.0.2",
     "express": "^4.16.3",
     "helmet": "^3.14.0",
     "joi": "^14.0.1",
