@@ -7,8 +7,7 @@ import plainJoi from 'joi';
 const joiZxcvbn = require('joi-zxcvbn');
 import Mailgun from 'mailgun-js';
 import mongodb from 'mongodb';
-const sodium = require('sodium');
-import _sodium from 'libsodium-wrappers';
+import sodium from 'libsodium-wrappers-sumo';
 import Stripe, { IStripeError, customers, subscriptions, ICard } from 'stripe';
 import zxcvbn from 'zxcvbn';
 
@@ -45,23 +44,13 @@ let server
 app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 	const { email } = req.body;
 	const user = await users.findOne({email: req.body.email});
-	// const auth = new (user['signing_key'], 'base64');
-	// const mac = Buffer.from(req.body.mac, 'base64');
 	const valid_until = req.body.valid_until;
-	// const isValid = auth.validate(mac, valid_until);
-		console.log('made it ')
-	console.log(req.body.mac)
-	console.log(user['signing_key']);
-	try {
-	const isValid = _sodium.crypto_auth_verify(from_base64(req.body.mac), valid_until, from_base64(user['signing_key']));
+	const isValid = sodium.crypto_auth_verify(from_base64(req.body.mac), valid_until, from_base64(user['signing_key']));
 	if (!isValid || (Date.now() > parseInt(valid_until))) {
 		res.send({error: 'invalid'});
 	} else {
 		next();
 	}
-} catch (err) {
-	console.log(err)
-}
 });
 
 // app.post('/auth/delete', (req: Request, res: Response) => {
@@ -120,10 +109,11 @@ app.post('/signup', async (req: Request, res: Response) => {
 	}
 	const card = customer.sources.data.find(source => source.id === customer.default_source) as ICard
 	console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`)
-	const hash = sodium.api.crypto_pwhash_str(
- 		Buffer.from(req.body.password),
-	 	sodium.api.crypto_pwhash_OPSLIMIT_SENSITIVE,
-		sodium.api.crypto_pwhash_MEMLIMIT_INTERACTIVE);
+	const hash = sodium.crypto_pwhash_str(
+ 		req.body.password,
+	 	sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
+		sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
+
 	const confirmation_key = generateKey(32)
 	const user = await users.insertOne({
 		email: email,
@@ -174,7 +164,7 @@ app.post('/signup', async (req: Request, res: Response) => {
 
 app.post('/login', async function (req: Request, res: Response) {
 	const user = await users.findOne({email: req.body.email});
-	const isValid = sodium.api.crypto_pwhash_str_verify(user['pwhash'].buffer, Buffer.from(req.body.password));
+	const isValid = sodium.crypto_pwhash_str_verify(user['pwhash'], req.body.password);
 	const email = req.body.email;
 	if (isValid) {
 		const dict = generateTokenDict(user['signing_key']);
@@ -199,25 +189,23 @@ const confirm_email_schema = joi.object().keys({
 
 const generateTokenDict = (key: string) => {
 	const valid_until = (Date.now() + token_window).toString();
-	const mac = _sodium.crypto_auth(valid_until, from_base64(key));
+	const mac = sodium.crypto_auth(valid_until, from_base64(key));
 	return ({ mac: to_base64(mac), valid_until: valid_until});
 };
 
 const generateKey = (len: number) => {
-  const key = to_base64(_sodium.randombytes_buf(len));
-  return key;
+  	return to_base64(sodium.randombytes_buf(len));
 };
 
 const from_base64 = (bytes: string) => {
-	return _sodium.from_base64(bytes, _sodium.base64_variants.URLSAFE_NO_PADDING )
+	return sodium.from_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING )
 }
 
 const to_base64 = (bytes: Uint8Array) => {
-	return _sodium.to_base64(bytes, _sodium.base64_variants.URLSAFE_NO_PADDING )
+	return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING )
 }
 
 function distillError(error: IStripeError) {
-	//console.log(error)
 	return (({ code, message, param, type }) => ({ code, message, param, type }))(error)
 }
 

@@ -18,8 +18,7 @@ const joi_1 = __importDefault(require("joi"));
 const joiZxcvbn = require('joi-zxcvbn');
 const mailgun_js_1 = __importDefault(require("mailgun-js"));
 const mongodb_1 = __importDefault(require("mongodb"));
-const sodium = require('sodium');
-const libsodium_wrappers_1 = __importDefault(require("libsodium-wrappers"));
+const libsodium_wrappers_sumo_1 = __importDefault(require("libsodium-wrappers-sumo"));
 const stripe_1 = __importDefault(require("stripe"));
 const domain = 'mg.rhythmandala.com';
 const apiKey = 'key-3c12a1a4a66379e3a57c2da935b91141';
@@ -43,24 +42,13 @@ let server;
 app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* () {
     const { email } = req.body;
     const user = yield users.findOne({ email: req.body.email });
-    // const auth = new (user['signing_key'], 'base64');
-    // const mac = Buffer.from(req.body.mac, 'base64');
     const valid_until = req.body.valid_until;
-    // const isValid = auth.validate(mac, valid_until);
-    console.log('made it ');
-    console.log(req.body.mac);
-    console.log(user['signing_key']);
-    try {
-        const isValid = libsodium_wrappers_1.default.crypto_auth_verify(from_base64(req.body.mac), valid_until, from_base64(user['signing_key']));
-        if (!isValid || (Date.now() > parseInt(valid_until))) {
-            res.send({ error: 'invalid' });
-        }
-        else {
-            next();
-        }
+    const isValid = libsodium_wrappers_sumo_1.default.crypto_auth_verify(from_base64(req.body.mac), valid_until, from_base64(user['signing_key']));
+    if (!isValid || (Date.now() > parseInt(valid_until))) {
+        res.send({ error: 'invalid' });
     }
-    catch (err) {
-        console.log(err);
+    else {
+        next();
     }
 }));
 // app.post('/auth/delete', (req: Request, res: Response) => {
@@ -119,7 +107,7 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
     }
     const card = customer.sources.data.find(source => source.id === customer.default_source);
     console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`);
-    const hash = sodium.api.crypto_pwhash_str(Buffer.from(req.body.password), sodium.api.crypto_pwhash_OPSLIMIT_SENSITIVE, sodium.api.crypto_pwhash_MEMLIMIT_INTERACTIVE);
+    const hash = libsodium_wrappers_sumo_1.default.crypto_pwhash_str(req.body.password, libsodium_wrappers_sumo_1.default.crypto_pwhash_OPSLIMIT_SENSITIVE, libsodium_wrappers_sumo_1.default.crypto_pwhash_MEMLIMIT_INTERACTIVE);
     const confirmation_key = generateKey(32);
     const user = yield users.insertOne({
         email: email,
@@ -167,7 +155,7 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
 app.post('/login', function (req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         const user = yield users.findOne({ email: req.body.email });
-        const isValid = sodium.api.crypto_pwhash_str_verify(user['pwhash'].buffer, Buffer.from(req.body.password));
+        const isValid = libsodium_wrappers_sumo_1.default.crypto_pwhash_str_verify(user['pwhash'], req.body.password);
         const email = req.body.email;
         if (isValid) {
             const dict = generateTokenDict(user['signing_key']);
@@ -191,21 +179,19 @@ const confirm_email_schema = joi.object().keys({
 });
 const generateTokenDict = (key) => {
     const valid_until = (Date.now() + token_window).toString();
-    const mac = libsodium_wrappers_1.default.crypto_auth(valid_until, from_base64(key));
+    const mac = libsodium_wrappers_sumo_1.default.crypto_auth(valid_until, from_base64(key));
     return ({ mac: to_base64(mac), valid_until: valid_until });
 };
 const generateKey = (len) => {
-    const key = to_base64(libsodium_wrappers_1.default.randombytes_buf(len));
-    return key;
+    return to_base64(libsodium_wrappers_sumo_1.default.randombytes_buf(len));
 };
 const from_base64 = (bytes) => {
-    return libsodium_wrappers_1.default.from_base64(bytes, libsodium_wrappers_1.default.base64_variants.URLSAFE_NO_PADDING);
+    return libsodium_wrappers_sumo_1.default.from_base64(bytes, libsodium_wrappers_sumo_1.default.base64_variants.URLSAFE_NO_PADDING);
 };
 const to_base64 = (bytes) => {
-    return libsodium_wrappers_1.default.to_base64(bytes, libsodium_wrappers_1.default.base64_variants.URLSAFE_NO_PADDING);
+    return libsodium_wrappers_sumo_1.default.to_base64(bytes, libsodium_wrappers_sumo_1.default.base64_variants.URLSAFE_NO_PADDING);
 };
 function distillError(error) {
-    //console.log(error)
     return (({ code, message, param, type }) => ({ code, message, param, type }))(error);
 }
 module.exports = { app: app.listen(port, function () {
