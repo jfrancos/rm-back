@@ -9,7 +9,12 @@ const joiZxcvbn = require('joi-zxcvbn');
 import Mailgun from 'mailgun-js';
 import mongodb from 'mongodb';
 const sodium = require('sodium');
+//const _sodium = require('libsodium-wrappers');
+//import _sodium from 'libsodium-wrappers';
+import _sodium from 'libsodium-wrappers';
+
 import Stripe, { IStripeError, customers, subscriptions, ICard } from 'stripe';
+
 import zxcvbn from 'zxcvbn';
 const domain = 'mg.rhythmandala.com'
 const apiKey = 'key-3c12a1a4a66379e3a57c2da935b91141'
@@ -30,6 +35,9 @@ let users: mongodb.Collection;
 app.use(helmet())
 app.use(bodyParser.json());
 
+declare function run(): void;
+
+
 let server
 
 (async () => {
@@ -41,7 +49,7 @@ let server
 app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 	const { email } = req.body;
 	const user = await users.findOne({email: req.body.email});
-	const auth = new sodium.Auth(user['signing_key'].buffer);
+	const auth = new sodium.Auth(user['signing_key'], 'base64');
 	const mac = Buffer.from(req.body.mac, 'base64');
 	const valid_until = req.body.valid_until;
 	const isValid = auth.validate(mac, valid_until);
@@ -61,7 +69,7 @@ app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 app.post('/auth/test', async (req: Request, res: Response) => {
 	const email = req.body.email;
 	const user = await users.findOne({email: req.body.email});
-	res.send(generateTokenDict(user['signing_key'].buffer));
+	res.send(generateTokenDict(user['signing_key']));
 });
 
 app.post('/auth/refresh_auth_key', async (req: Request, res: Response) => {
@@ -129,10 +137,10 @@ app.post('/signup', async (req: Request, res: Response) => {
 	  from: 'RhythMandala <signups@rhythmandala.com>',
 	  to: email,
 	  subject: 'Complete Signup',
-	  text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key.toString('base64')
+	  text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key//.toString('base64')
 	};
 
-	console.log(confirmation_key.toString('base64'))
+	console.log(confirmation_key);//.toString('base64'));
 
 	mailgun.messages().send(data, function (error, body) {
 	  console.log(body);
@@ -167,7 +175,7 @@ app.post('/login', async function (req: Request, res: Response) {
 	const isValid = sodium.api.crypto_pwhash_str_verify(user['pwhash'].buffer, Buffer.from(req.body.password));
 	const email = req.body.email;
 	if (isValid) {
-		const auth = new sodium.Auth(user['signing_key'].buffer);
+		const auth = new sodium.Auth(user['signing_key'], 'base64');
 		const valid_until = (Date.now() + token_window).toString();
 		const mac = auth.generate(valid_until);
 		console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
@@ -190,15 +198,17 @@ const confirm_email_schema = joi.object().keys({
 })
 
 const generateTokenDict = (key: string) => {
-	const auth = new sodium.Auth(key);
+	const auth = new sodium.Auth(key, 'base64');
 	const valid_until = (Date.now() + token_window).toString()
 	const mac = auth.generate(valid_until).toString('base64');
 	return ({ mac: mac, valid_until: valid_until});
 };
 
 const generateKey = (len: number) => {
-  const key = Buffer.allocUnsafe(len);
-  sodium.api.randombytes_buf(key, len);
+  // const key = Buffer.allocUnsafe(len);	
+  // sodium.api.randombytes_buf(key, len);
+  const key = _sodium.to_base64(_sodium.randombytes_buf(len),_sodium.base64_variants.URLSAFE_NO_PADDING);
+  //console.log(key);
   return key;
 };
 
@@ -207,7 +217,7 @@ function distillError(error: IStripeError) {
 	return (({ code, message, param, type }) => ({ code, message, param, type }))(error)
 }
 
-module.exports = { app: app.listen(port, function () {
+ 	module.exports = { app: app.listen(port, function () {
   console.log(`Example app listening on port ${port}!`);
-})
-}
+
+})}

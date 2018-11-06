@@ -20,6 +20,9 @@ const joiZxcvbn = require('joi-zxcvbn');
 const mailgun_js_1 = __importDefault(require("mailgun-js"));
 const mongodb_1 = __importDefault(require("mongodb"));
 const sodium = require('sodium');
+//const _sodium = require('libsodium-wrappers');
+//import _sodium from 'libsodium-wrappers';
+const libsodium_wrappers_1 = __importDefault(require("libsodium-wrappers"));
 const stripe_1 = __importDefault(require("stripe"));
 const domain = 'mg.rhythmandala.com';
 const apiKey = 'key-3c12a1a4a66379e3a57c2da935b91141';
@@ -43,7 +46,7 @@ let server;
 app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* () {
     const { email } = req.body;
     const user = yield users.findOne({ email: req.body.email });
-    const auth = new sodium.Auth(user['signing_key'].buffer);
+    const auth = new sodium.Auth(user['signing_key'], 'base64');
     const mac = Buffer.from(req.body.mac, 'base64');
     const valid_until = req.body.valid_until;
     const isValid = auth.validate(mac, valid_until);
@@ -62,7 +65,7 @@ app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* (
 app.post('/auth/test', (req, res) => __awaiter(this, void 0, void 0, function* () {
     const email = req.body.email;
     const user = yield users.findOne({ email: req.body.email });
-    res.send(generateTokenDict(user['signing_key'].buffer));
+    res.send(generateTokenDict(user['signing_key']));
 }));
 app.post('/auth/refresh_auth_key', (req, res) => __awaiter(this, void 0, void 0, function* () {
     const email = req.body.email;
@@ -127,9 +130,9 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
         from: 'RhythMandala <signups@rhythmandala.com>',
         to: email,
         subject: 'Complete Signup',
-        text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key.toString('base64')
+        text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key //.toString('base64')
     };
-    console.log(confirmation_key.toString('base64'));
+    console.log(confirmation_key); //.toString('base64'));
     mailgun.messages().send(data, function (error, body) {
         console.log(body);
     });
@@ -162,7 +165,7 @@ app.post('/login', function (req, res) {
         const isValid = sodium.api.crypto_pwhash_str_verify(user['pwhash'].buffer, Buffer.from(req.body.password));
         const email = req.body.email;
         if (isValid) {
-            const auth = new sodium.Auth(user['signing_key'].buffer);
+            const auth = new sodium.Auth(user['signing_key'], 'base64');
             const valid_until = (Date.now() + token_window).toString();
             const mac = auth.generate(valid_until);
             console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
@@ -184,22 +187,28 @@ const confirm_email_schema = joi.object().keys({
     key: joi.string().required()
 });
 const generateTokenDict = (key) => {
-    const auth = new sodium.Auth(key);
+    const auth = new sodium.Auth(key, 'base64');
     const valid_until = (Date.now() + token_window).toString();
     const mac = auth.generate(valid_until).toString('base64');
     return ({ mac: mac, valid_until: valid_until });
 };
 const generateKey = (len) => {
-    const key = Buffer.allocUnsafe(len);
-    sodium.api.randombytes_buf(key, len);
+    // const key = Buffer.allocUnsafe(len);	
+    // sodium.api.randombytes_buf(key, len);
+    const key = libsodium_wrappers_1.default.to_base64(libsodium_wrappers_1.default.randombytes_buf(len), libsodium_wrappers_1.default.base64_variants.URLSAFE_NO_PADDING);
+    //console.log(key);
     return key;
 };
 function distillError(error) {
     //console.log(error)
     return (({ code, message, param, type }) => ({ code, message, param, type }))(error);
 }
+(() => __awaiter(this, void 0, void 0, function* () {
+    yield libsodium_wrappers_1.default.ready;
+    //	run();
+    //	console.log(_sodium.crypto_hash('balls'));
+}))();
 module.exports = { app: app.listen(port, function () {
         console.log(`Example app listening on port ${port}!`);
-    })
-};
+    }) };
 //# sourceMappingURL=app.js.map
