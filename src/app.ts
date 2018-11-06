@@ -30,9 +30,6 @@ let users: mongodb.Collection;
 app.use(helmet())
 app.use(bodyParser.json());
 
-declare function run(): void;
-
-
 let server
 
 (async () => {
@@ -67,7 +64,7 @@ app.post('/auth/test', async (req: Request, res: Response) => {
 
 app.post('/auth/refresh_auth_key', async (req: Request, res: Response) => {
 	const email = req.body.email;
-	const user = await users.findOneAndUpdate({email: req.body.email}, {$set: {signing_key: generateKey(32)}});
+	const user = await users.findOneAndUpdate({email: req.body.email}, {$set: {signing_key: to_base64(sodium.crypto_auth_keygen())}});
 	res.send({ message: 'invalid' });
 });
 
@@ -114,12 +111,12 @@ app.post('/signup', async (req: Request, res: Response) => {
 	 	sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
 		sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
 
-	const confirmation_key = generateKey(32)
+	const confirmation_key = to_base64(sodium.crypto_auth_keygen())
 	const user = await users.insertOne({
 		email: email,
 		pwhash: hash,
 		stripe_cust: customer.id,
-		signing_key: generateKey(32),
+		signing_key: to_base64(sodium.crypto_auth_keygen()),
 		confirmation_key: confirmation_key,
 		brand: card.brand,
 		last4: card.last4,
@@ -191,10 +188,6 @@ const generateTokenDict = (key: string) => {
 	const valid_until = (Date.now() + token_window).toString();
 	const mac = sodium.crypto_auth(valid_until, from_base64(key));
 	return ({ mac: to_base64(mac), valid_until: valid_until});
-};
-
-const generateKey = (len: number) => {
-  	return to_base64(sodium.randombytes_buf(len));
 };
 
 const from_base64 = (bytes: string) => {

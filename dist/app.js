@@ -63,7 +63,7 @@ app.post('/auth/test', (req, res) => __awaiter(this, void 0, void 0, function* (
 }));
 app.post('/auth/refresh_auth_key', (req, res) => __awaiter(this, void 0, void 0, function* () {
     const email = req.body.email;
-    const user = yield users.findOneAndUpdate({ email: req.body.email }, { $set: { signing_key: generateKey(32) } });
+    const user = yield users.findOneAndUpdate({ email: req.body.email }, { $set: { signing_key: to_base64(libsodium_wrappers_sumo_1.default.crypto_auth_keygen()) } });
     res.send({ message: 'invalid' });
 }));
 app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
@@ -108,12 +108,12 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
     const card = customer.sources.data.find(source => source.id === customer.default_source);
     console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`);
     const hash = libsodium_wrappers_sumo_1.default.crypto_pwhash_str(req.body.password, libsodium_wrappers_sumo_1.default.crypto_pwhash_OPSLIMIT_SENSITIVE, libsodium_wrappers_sumo_1.default.crypto_pwhash_MEMLIMIT_INTERACTIVE);
-    const confirmation_key = generateKey(32);
+    const confirmation_key = to_base64(libsodium_wrappers_sumo_1.default.crypto_auth_keygen());
     const user = yield users.insertOne({
         email: email,
         pwhash: hash,
         stripe_cust: customer.id,
-        signing_key: generateKey(32),
+        signing_key: to_base64(libsodium_wrappers_sumo_1.default.crypto_auth_keygen()),
         confirmation_key: confirmation_key,
         brand: card.brand,
         last4: card.last4,
@@ -181,9 +181,6 @@ const generateTokenDict = (key) => {
     const valid_until = (Date.now() + token_window).toString();
     const mac = libsodium_wrappers_sumo_1.default.crypto_auth(valid_until, from_base64(key));
     return ({ mac: to_base64(mac), valid_until: valid_until });
-};
-const generateKey = (len) => {
-    return to_base64(libsodium_wrappers_sumo_1.default.randombytes_buf(len));
 };
 const from_base64 = (bytes) => {
     return libsodium_wrappers_sumo_1.default.from_base64(bytes, libsodium_wrappers_sumo_1.default.base64_variants.URLSAFE_NO_PADDING);
