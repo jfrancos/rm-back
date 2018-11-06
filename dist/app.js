@@ -14,14 +14,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const body_parser_1 = __importDefault(require("body-parser"));
 const express_1 = __importDefault(require("express"));
 const helmet_1 = __importDefault(require("helmet"));
-///var mailgun = require('mailgun-js')({apiKey: api_key, domain: DOMAIN});
 const joi_1 = __importDefault(require("joi"));
 const joiZxcvbn = require('joi-zxcvbn');
 const mailgun_js_1 = __importDefault(require("mailgun-js"));
 const mongodb_1 = __importDefault(require("mongodb"));
 const sodium = require('sodium');
-//const _sodium = require('libsodium-wrappers');
-//import _sodium from 'libsodium-wrappers';
 const libsodium_wrappers_1 = __importDefault(require("libsodium-wrappers"));
 const stripe_1 = __importDefault(require("stripe"));
 const domain = 'mg.rhythmandala.com';
@@ -46,15 +43,24 @@ let server;
 app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* () {
     const { email } = req.body;
     const user = yield users.findOne({ email: req.body.email });
-    const auth = new sodium.Auth(user['signing_key'], 'base64');
-    const mac = Buffer.from(req.body.mac, 'base64');
+    // const auth = new (user['signing_key'], 'base64');
+    // const mac = Buffer.from(req.body.mac, 'base64');
     const valid_until = req.body.valid_until;
-    const isValid = auth.validate(mac, valid_until);
-    if (!isValid || (Date.now() > parseInt(valid_until))) {
-        res.send({ error: 'invalid' });
+    // const isValid = auth.validate(mac, valid_until);
+    console.log('made it ');
+    console.log(req.body.mac);
+    console.log(user['signing_key']);
+    try {
+        const isValid = libsodium_wrappers_1.default.crypto_auth_verify(from_base64(req.body.mac), valid_until, from_base64(user['signing_key']));
+        if (!isValid || (Date.now() > parseInt(valid_until))) {
+            res.send({ error: 'invalid' });
+        }
+        else {
+            next();
+        }
     }
-    else {
-        next();
+    catch (err) {
+        console.log(err);
     }
 }));
 // app.post('/auth/delete', (req: Request, res: Response) => {
@@ -132,7 +138,6 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
         subject: 'Complete Signup',
         text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key //.toString('base64')
     };
-    console.log(confirmation_key); //.toString('base64'));
     mailgun.messages().send(data, function (error, body) {
         console.log(body);
     });
@@ -165,11 +170,9 @@ app.post('/login', function (req, res) {
         const isValid = sodium.api.crypto_pwhash_str_verify(user['pwhash'].buffer, Buffer.from(req.body.password));
         const email = req.body.email;
         if (isValid) {
-            const auth = new sodium.Auth(user['signing_key'], 'base64');
-            const valid_until = (Date.now() + token_window).toString();
-            const mac = auth.generate(valid_until);
+            const dict = generateTokenDict(user['signing_key']);
             console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
-            res.send({ valid_until: valid_until, mac: mac.toString('base64') });
+            res.send(dict);
         }
         else {
             console.log(`LOGIN_FAILED: with username [${email}]`);
@@ -187,27 +190,24 @@ const confirm_email_schema = joi.object().keys({
     key: joi.string().required()
 });
 const generateTokenDict = (key) => {
-    const auth = new sodium.Auth(key, 'base64');
     const valid_until = (Date.now() + token_window).toString();
-    const mac = auth.generate(valid_until).toString('base64');
-    return ({ mac: mac, valid_until: valid_until });
+    const mac = libsodium_wrappers_1.default.crypto_auth(valid_until, from_base64(key));
+    return ({ mac: to_base64(mac), valid_until: valid_until });
 };
 const generateKey = (len) => {
-    // const key = Buffer.allocUnsafe(len);	
-    // sodium.api.randombytes_buf(key, len);
-    const key = libsodium_wrappers_1.default.to_base64(libsodium_wrappers_1.default.randombytes_buf(len), libsodium_wrappers_1.default.base64_variants.URLSAFE_NO_PADDING);
-    //console.log(key);
+    const key = to_base64(libsodium_wrappers_1.default.randombytes_buf(len));
     return key;
+};
+const from_base64 = (bytes) => {
+    return libsodium_wrappers_1.default.from_base64(bytes, libsodium_wrappers_1.default.base64_variants.URLSAFE_NO_PADDING);
+};
+const to_base64 = (bytes) => {
+    return libsodium_wrappers_1.default.to_base64(bytes, libsodium_wrappers_1.default.base64_variants.URLSAFE_NO_PADDING);
 };
 function distillError(error) {
     //console.log(error)
     return (({ code, message, param, type }) => ({ code, message, param, type }))(error);
 }
-(() => __awaiter(this, void 0, void 0, function* () {
-    yield libsodium_wrappers_1.default.ready;
-    //	run();
-    //	console.log(_sodium.crypto_hash('balls'));
-}))();
 module.exports = { app: app.listen(port, function () {
         console.log(`Example app listening on port ${port}!`);
     }) };
