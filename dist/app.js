@@ -36,14 +36,13 @@ app.use(body_parser_1.default.json());
 let server;
 (() => __awaiter(this, void 0, void 0, function* () {
     server = yield mongodb_1.default.connect(url, { useNewUrlParser: true });
-    const db = server.db('rhythmandala');
-    users = yield db.collection('users');
+    users = yield server.db('rhythmandala').collection('users');
 }))();
 app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* () {
     const { email } = req.body;
     const user = yield users.findOne({ email: req.body.email });
     const valid_until = req.body.valid_until;
-    const isValid = libsodium_wrappers_sumo_1.default.crypto_auth_verify(from_base64(req.body.mac), valid_until, from_base64(user['signing_key']));
+    const isValid = libsodium_wrappers_sumo_1.default.crypto_auth_verify(from_base64(req.body.mac), valid_until, user['signing_key'].buffer);
     if (!isValid || (Date.now() > parseInt(valid_until))) {
         res.send({ error: 'invalid' });
     }
@@ -57,13 +56,17 @@ app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* (
 // 	res.send();
 // });
 app.post('/auth/test', (req, res) => __awaiter(this, void 0, void 0, function* () {
-    const email = req.body.email;
-    const user = yield users.findOne({ email: req.body.email });
-    res.send(generateTokenDict(user['signing_key']));
+    const { email } = req.body;
+    const user = yield users.findOne({ email });
+    res.send(generateTokenDict(user['signing_key'].buffer));
 }));
 app.post('/auth/refresh_auth_key', (req, res) => __awaiter(this, void 0, void 0, function* () {
-    const email = req.body.email;
-    const user = yield users.findOneAndUpdate({ email: req.body.email }, { $set: { signing_key: to_base64(libsodium_wrappers_sumo_1.default.crypto_auth_keygen()) } });
+    const { email } = req.body;
+    const user = yield users.findOneAndUpdate({ email }, {
+        $set: {
+            signing_key: Buffer.from(libsodium_wrappers_sumo_1.default.crypto_auth_keygen())
+        }
+    });
     res.send({ message: 'invalid' });
 }));
 app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
@@ -113,7 +116,7 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
         email: email,
         pwhash: hash,
         stripe_cust: customer.id,
-        signing_key: to_base64(libsodium_wrappers_sumo_1.default.crypto_auth_keygen()),
+        signing_key: Buffer.from(libsodium_wrappers_sumo_1.default.crypto_auth_keygen()),
         confirmation_key: confirmation_key,
         brand: card.brand,
         last4: card.last4,
@@ -124,7 +127,7 @@ app.post('/signup', (req, res) => __awaiter(this, void 0, void 0, function* () {
         from: 'RhythMandala <signups@rhythmandala.com>',
         to: email,
         subject: 'Complete Signup',
-        text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key //.toString('base64')
+        text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key
     };
     mailgun.messages().send(data, function (error, body) {
         console.log(body);
@@ -158,7 +161,7 @@ app.post('/login', function (req, res) {
         const isValid = libsodium_wrappers_sumo_1.default.crypto_pwhash_str_verify(user['pwhash'], req.body.password);
         const email = req.body.email;
         if (isValid) {
-            const dict = generateTokenDict(user['signing_key']);
+            const dict = generateTokenDict(user['signing_key'].buffer);
             console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
             res.send(dict);
         }
@@ -178,9 +181,14 @@ const confirm_email_schema = joi.object().keys({
     key: joi.string().required()
 });
 const generateTokenDict = (key) => {
-    const valid_until = (Date.now() + token_window).toString();
-    const mac = libsodium_wrappers_sumo_1.default.crypto_auth(valid_until, from_base64(key));
-    return ({ mac: to_base64(mac), valid_until: valid_until });
+    try {
+        const valid_until = (Date.now() + token_window).toString();
+        const mac = libsodium_wrappers_sumo_1.default.crypto_auth(valid_until, key);
+        return ({ mac: to_base64(mac), valid_until: valid_until });
+    }
+    catch (err) {
+        console.log(err);
+    }
 };
 const from_base64 = (bytes) => {
     return libsodium_wrappers_sumo_1.default.from_base64(bytes, libsodium_wrappers_sumo_1.default.base64_variants.URLSAFE_NO_PADDING);

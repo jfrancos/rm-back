@@ -31,18 +31,16 @@ app.use(helmet())
 app.use(bodyParser.json());
 
 let server
-
 (async () => {
 	server = await mongodb.connect(url, { useNewUrlParser: true });
-	const db = server.db('rhythmandala');
-	users = await db.collection('users');
+	users = await server.db('rhythmandala').collection('users');
 })();
 
 app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 	const { email } = req.body;
 	const user = await users.findOne({email: req.body.email});
 	const valid_until = req.body.valid_until;
-	const isValid = sodium.crypto_auth_verify(from_base64(req.body.mac), valid_until, from_base64(user['signing_key']));
+	const isValid = sodium.crypto_auth_verify(from_base64(req.body.mac), valid_until, user['signing_key'].buffer);
 	if (!isValid || (Date.now() > parseInt(valid_until))) {
 		res.send({error: 'invalid'});
 	} else {
@@ -57,14 +55,18 @@ app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 // });
 
 app.post('/auth/test', async (req: Request, res: Response) => {
-	const email = req.body.email;
-	const user = await users.findOne({email: req.body.email});
-	res.send(generateTokenDict(user['signing_key']));
+	const { email } = req.body;
+	const user = await users.findOne({ email });
+	res.send(generateTokenDict(user['signing_key'].buffer));
 });
 
 app.post('/auth/refresh_auth_key', async (req: Request, res: Response) => {
-	const email = req.body.email;
-	const user = await users.findOneAndUpdate({email: req.body.email}, {$set: {signing_key: to_base64(sodium.crypto_auth_keygen())}});
+	const { email } = req.body;
+	const user = await users.findOneAndUpdate( { email }, {
+		$set: {
+			signing_key: Buffer.from(sodium.crypto_auth_keygen())
+		}
+	});
 	res.send({ message: 'invalid' });
 });
 
@@ -104,31 +106,31 @@ app.post('/signup', async (req: Request, res: Response) => {
 		res.status(400).json(error);
 	 	return;
 	}
-	const card = customer.sources.data.find(source => source.id === customer.default_source) as ICard
+	const card = customer.sources.data.find (
+		source => source.id === customer.default_source
+	) as ICard
 	console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`)
 	const hash = sodium.crypto_pwhash_str(
  		req.body.password,
 	 	sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
 		sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
-
 	const confirmation_key = to_base64(sodium.crypto_auth_keygen())
 	const user = await users.insertOne({
 		email: email,
 		pwhash: hash,
 		stripe_cust: customer.id,
-		signing_key: to_base64(sodium.crypto_auth_keygen()),
+		signing_key: Buffer.from(sodium.crypto_auth_keygen()),
 		confirmation_key: confirmation_key,
 		brand: card.brand,
 		last4: card.last4,
 		exp_year: card.exp_year,
 		exp_month: card.exp_month
 	});
-
 	const data = {
 	  from: 'RhythMandala <signups@rhythmandala.com>',
 	  to: email,
 	  subject: 'Complete Signup',
-	  text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key//.toString('base64')
+	  text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key
 	};
 
 	mailgun.messages().send(data, function (error, body) {
@@ -164,7 +166,7 @@ app.post('/login', async function (req: Request, res: Response) {
 	const isValid = sodium.crypto_pwhash_str_verify(user['pwhash'], req.body.password);
 	const email = req.body.email;
 	if (isValid) {
-		const dict = generateTokenDict(user['signing_key']);
+		const dict = generateTokenDict(user['signing_key'].buffer);
 		console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
 		res.send( dict );
 	} else {
@@ -184,9 +186,9 @@ const confirm_email_schema = joi.object().keys({
 	key: joi.string().required()
 })
 
-const generateTokenDict = (key: string) => {
+const generateTokenDict = (key: Buffer) => {
 	const valid_until = (Date.now() + token_window).toString();
-	const mac = sodium.crypto_auth(valid_until, from_base64(key));
+	const mac = sodium.crypto_auth(valid_until, key);
 	return ({ mac: to_base64(mac), valid_until: valid_until});
 };
 
@@ -202,7 +204,6 @@ function distillError(error: IStripeError) {
 	return (({ code, message, param, type }) => ({ code, message, param, type }))(error)
 }
 
- 	module.exports = { app: app.listen(port, function () {
-  console.log(`Example app listening on port ${port}!`);
-
+module.exports = { app: app.listen(port, function () {
+	console.log(`Example app listening on port ${port}!`);
 })}
