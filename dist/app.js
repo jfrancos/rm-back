@@ -12,30 +12,32 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const body_parser_1 = __importDefault(require("body-parser"));
+const dotenv_1 = __importDefault(require("dotenv"));
 const express_1 = __importDefault(require("express"));
 const helmet_1 = __importDefault(require("helmet"));
 const joi_1 = __importDefault(require("joi"));
 const joiZxcvbn = require('joi-zxcvbn');
+const libsodium_wrappers_sumo_1 = __importDefault(require("libsodium-wrappers-sumo"));
 const mailgun_js_1 = __importDefault(require("mailgun-js"));
 const mongodb_1 = __importDefault(require("mongodb"));
-const libsodium_wrappers_sumo_1 = __importDefault(require("libsodium-wrappers-sumo"));
 const stripe_1 = __importDefault(require("stripe"));
+dotenv_1.default.config();
+console.log(process.env.PORT);
 const domain = 'mg.rhythmandala.com';
-const apiKey = 'key-3c12a1a4a66379e3a57c2da935b91141';
+const apiKey = process.env.MG_KEY;
 const mailgun = new mailgun_js_1.default({ apiKey, domain });
-const stripe = new stripe_1.default("sk_test_4vUzfLsfzZ7ffojQgISR1ntd");
-const url = 'mongodb://localhost:27017';
+const stripe = new stripe_1.default(process.env.STRIPE_KEY);
+const url = process.env.MONGODB_URI;
 const token_window = 60000;
-const port = process.env.PORT || 3000;
-const plan = 'plan_DrPVwslmSpiOT4';
+const port = process.env.PORT; // || 3000;
+const plan = process.env.STRIPE_PLAN;
 const app = express_1.default();
 const joi = joi_1.default.extend(joiZxcvbn(joi_1.default));
 let users;
 app.use(helmet_1.default());
 app.use(body_parser_1.default.json());
-let server;
 (() => __awaiter(this, void 0, void 0, function* () {
-    server = yield mongodb_1.default.connect(url, { useNewUrlParser: true });
+    const server = yield mongodb_1.default.connect(url, { useNewUrlParser: true });
     users = yield server.db('rhythmandala').collection('users');
 }))();
 app.use('/auth', (req, res, next) => __awaiter(this, void 0, void 0, function* () {
@@ -181,14 +183,9 @@ const confirm_email_schema = joi.object().keys({
     key: joi.string().required()
 });
 const generateTokenDict = (key) => {
-    try {
-        const valid_until = (Date.now() + token_window).toString();
-        const mac = libsodium_wrappers_sumo_1.default.crypto_auth(valid_until, key);
-        return ({ mac: to_base64(mac), valid_until: valid_until });
-    }
-    catch (err) {
-        console.log(err);
-    }
+    const valid_until = (Date.now() + token_window).toString();
+    const mac = libsodium_wrappers_sumo_1.default.crypto_auth(valid_until, key);
+    return ({ mac: to_base64(mac), valid_until: valid_until });
 };
 const from_base64 = (bytes) => {
     return libsodium_wrappers_sumo_1.default.from_base64(bytes, libsodium_wrappers_sumo_1.default.base64_variants.URLSAFE_NO_PADDING);

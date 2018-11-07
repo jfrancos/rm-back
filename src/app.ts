@@ -1,28 +1,31 @@
 
 import assert from 'assert';
 import bodyParser from 'body-parser';
+import dotenv from 'dotenv';
 import express, { Request, Response, NextFunction, Application } from "express";
 import helmet from 'helmet';
 import plainJoi from 'joi';
 const joiZxcvbn = require('joi-zxcvbn');
+import sodium from 'libsodium-wrappers-sumo';
 import Mailgun from 'mailgun-js';
 import mongodb from 'mongodb';
-import sodium from 'libsodium-wrappers-sumo';
 import Stripe, { IStripeError, customers, subscriptions, ICard } from 'stripe';
 import zxcvbn from 'zxcvbn';
 
-const domain = 'mg.rhythmandala.com'
-const apiKey = 'key-3c12a1a4a66379e3a57c2da935b91141'
-
+dotenv.config();
 type Customer = customers.ICustomer;
 type Subscription = subscriptions.ISubscription;
 
-const mailgun = new Mailgun({apiKey, domain});
-const stripe = new Stripe("sk_test_4vUzfLsfzZ7ffojQgISR1ntd");
-const url = 'mongodb://localhost:27017';
+console.log(process.env.PORT);
+
+const domain = 'mg.rhythmandala.com';
+const apiKey = process.env.MG_KEY;
+const mailgun = new Mailgun({ apiKey, domain });
+const stripe = new Stripe(process.env.STRIPE_KEY);
+const url = process.env.MONGODB_URI;
 const token_window = 60000;
-const port = process.env.PORT || 3000;
-const plan = 'plan_DrPVwslmSpiOT4';
+const port = process.env.PORT;// || 3000;
+const plan = process.env.STRIPE_PLAN;
 const app: express.Application = express();
 const joi = plainJoi.extend(joiZxcvbn(plainJoi));
 let users: mongodb.Collection;
@@ -30,9 +33,8 @@ let users: mongodb.Collection;
 app.use(helmet())
 app.use(bodyParser.json());
 
-let server
 (async () => {
-	server = await mongodb.connect(url, { useNewUrlParser: true });
+	const server = await mongodb.connect(url, { useNewUrlParser: true });
 	users = await server.db('rhythmandala').collection('users');
 })();
 
