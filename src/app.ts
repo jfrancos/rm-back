@@ -35,7 +35,7 @@ app.use(bodyParser.json());
 
 (async () => {
 	const server = await mongodb.connect(url, { useNewUrlParser: true });
-	users = await server.db('rhythmandala').collection('users');
+	users = await server.db().collection('users');
 })();
 
 app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
