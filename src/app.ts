@@ -111,23 +111,27 @@ app.post('/signup', async (req: Request, res: Response) => {
 	const card = customer.sources.data.find (
 		source => source.id === customer.default_source
 	) as ICard
-	console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`)
-	const hash = sodium.crypto_pwhash_str(
- 		req.body.password,
-	 	sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
-		sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
-	const confirmation_key = to_base64(sodium.crypto_auth_keygen())
-	const user = await users.insertOne({
-		email: email,
-		pwhash: hash,
-		stripe_cust: customer.id,
-		signing_key: Buffer.from(sodium.crypto_auth_keygen()),
-		confirmation_key: confirmation_key,
-		brand: card.brand,
-		last4: card.last4,
-		exp_year: card.exp_year,
-		exp_month: card.exp_month
-	});
+	console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`);
+	const confirmation_key = to_base64(sodium.crypto_auth_keygen());
+	try {
+		const hash = sodium.crypto_pwhash_str(
+	 		req.body.password,
+		 	sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
+			sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
+		const user = await users.insertOne({
+			email: email,
+			pwhash: hash,
+			stripe_cust: customer.id,
+			signing_key: Buffer.from(sodium.crypto_auth_keygen()),
+			confirmation_key: confirmation_key,
+			brand: card.brand,
+			last4: card.last4,
+			exp_year: card.exp_year,
+			exp_month: card.exp_month
+		});
+	} catch (err) {
+		console.log(err);
+	}
 	const data = {
 	  from: 'RhythMandala <signups@rhythmandala.com>',
 	  to: email,
