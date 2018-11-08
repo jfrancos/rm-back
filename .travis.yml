@@ -3,6 +3,6 @@ services: mongodb
 node_js:
   - "10"
 script: npm run test
-before_script:
-  - npm run build
+# before_script:
+#   - npm run build
 after_success: 'nyc report --reporter=text-lcov | coveralls'
