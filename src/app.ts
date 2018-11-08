@@ -24,9 +24,9 @@ const mailgun = new Mailgun({ apiKey, domain });
 const stripe = new Stripe(process.env.STRIPE_KEY);
 const url = process.env.MONGODB_URI;
 const token_window = 60000;
-const port = process.env.PORT;// || 3000;
+const port = process.env.PORT;
 const plan = process.env.STRIPE_PLAN;
-const app: express.Application = express();
+const app = express();
 const joi = plainJoi.extend(joiZxcvbn(plainJoi));
 let users: mongodb.Collection;
 
