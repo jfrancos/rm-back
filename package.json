@@ -4,6 +4,7 @@
   "description": "",
   "main": "app.js",
   "scripts": {
+    "postinstall": "npm run build",
     "build": "tsc",
     "test": "node node_modules/.bin/nyc mocha --exit",
     "start": "node dist/app.js",
