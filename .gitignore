@@ -4,3 +4,4 @@ coverage
 .coveralls.yml
 .env
 .nyc_output
+async-dump.js
