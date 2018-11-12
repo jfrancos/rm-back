@@ -11,32 +11,54 @@ import Mailgun from 'mailgun-js';
 import mongodb from 'mongodb';
 import Stripe, { IStripeError, customers, subscriptions, ICard } from 'stripe';
 import zxcvbn from 'zxcvbn';
+import * as http from 'http'
 
 dotenv.config();
 type Customer = customers.ICustomer;
 type Subscription = subscriptions.ISubscription;
 
-console.log(process.env.PORT);
+const token_window = 60000;
+const joi = plainJoi.extend(joiZxcvbn(plainJoi));
 
+// Mailgun Init
 const domain = 'mg.rhythmandala.com';
 const apiKey = process.env.MG_KEY;
 const mailgun = new Mailgun({ apiKey, domain });
-const stripe = new Stripe(process.env.STRIPE_KEY);
-const url = process.env.MONGODB_URI;
-const token_window = 60000;
-const port = process.env.PORT;
-const plan = process.env.STRIPE_PLAN;
-const app = express();
-const joi = plainJoi.extend(joiZxcvbn(plainJoi));
-let users: mongodb.Collection;
 
+// Stripe Init
+const stripe = new Stripe(process.env.STRIPE_KEY);
+const plan = process.env.STRIPE_PLAN;
+
+// Mongo Init
+let users: mongodb.Collection;
+let server: mongodb.MongoClient;
+const mongodb_uri = process.env.MONGODB_URI;
+const mongoInit = async () => {
+	server = await mongodb.connect(mongodb_uri, { useNewUrlParser: true });
+	users = await server.db().collection('users');
+	await users.createIndex( { 'email': 1 }, { unique: true } );
+};
+
+// Express Init
+const app = express();
+const port = process.env.PORT;
+let expressServer: http.Server;
 app.use(helmet())
 app.use(bodyParser.json());
 
+// Start DB then Express then Mocha callback
 (async () => {
-	const server = await mongodb.connect(url, { useNewUrlParser: true });
-	users = await server.db().collection('users');
-})();
+	await mongoInit();
+	expressServer = await app.listen(port);
+	if (mocha_callback) {
+		mocha_callback(users);
+	}
+})()
+
+// mongoInit().then(() => {
+// 	expressServer = app.listen(port);
+
+// })
 
 app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 	const { email } = req.body;
@@ -75,24 +97,24 @@ app.post('/auth/refresh_auth_key', async (req: Request, res: Response) => {
 app.post('/signup', async (req: Request, res: Response) => {
 	const validation = signup_schema.validate(req.body)
 	if (validation.error) {
-		console.error('SIGNUP: validation error', validation.error.details[0]);
-		res.status(400).json(validation.error.details[0]);
+		handleError(req, res, validation.error.name, validation.error.message );
 		return;
 	}
 	const { email, password, source } = validation.value;
-	//const user = await users.findOne({email: email});
-	// if (user) {
-	// 	res.status(400).json({ error: "user already exists"});
-	// }
+	const user = await users.findOne({ email });
+	if (user) {
+		handleError(req, res, 'DuplicateUserError', 'User already exists')
+		return;
+	}
 	let customer: Customer, subscription: Subscription;
 	try {
-		console.log('Awaiting customer creation');
+		logMessage(req, 'Awaiting customer creation');
 		customer = await stripe.customers.create({ source, email });
-		console.log('Awaiting subscription creation');
-		subscription = await stripe.subscriptions.create({
-			customer: customer.id,
-			items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
-		});
+		// console.log('Awaiting subscription creation');
+		// subscription = await stripe.subscriptions.create({
+		// 	customer: customer.id,
+		// 	items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
+		// });
 	} catch (err) {
 		const error = distillError(err)
 		if (!customer) {
@@ -110,15 +132,15 @@ app.post('/signup', async (req: Request, res: Response) => {
 	}
 	const card = customer.sources.data.find (
 		source => source.id === customer.default_source
-	) as ICard
-	console.log(`SIGNUP_SUCCESSFUL: with username [${email}]`);
+	) as ICard;
+	logMessage(req, `Successful with username [${email}]`);
 	const confirmation_key = to_base64(sodium.crypto_auth_keygen());
 	try {
 		const hash = sodium.crypto_pwhash_str(
 	 		req.body.password,
 		 	sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
 			sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
-		const user = await users.insertOne({
+		await users.insertOne({
 			email: email,
 			pwhash: hash,
 			stripe_cust: customer.id,
@@ -130,8 +152,10 @@ app.post('/signup', async (req: Request, res: Response) => {
 			exp_month: card.exp_month
 		});
 	} catch (err) {
-		console.log(err);
+		res.status(400).json(distillError(err));
+		return;
 	}
+	console.log("should be emailing")
 	const data = {
 	  from: 'RhythMandala <signups@rhythmandala.com>',
 	  to: email,
@@ -206,10 +230,34 @@ const to_base64 = (bytes: Uint8Array) => {
 	return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING )
 }
 
-function distillError(error: IStripeError) {
-	return (({ code, message, param, type }) => ({ code, message, param, type }))(error)
+const handleError = (req: Request, res: Response, code: String, message: String) => {
+	const path = req.url.toUpperCase();
+	logMessage(req, `${ code }: ${ message }`);
+	res.status(400).json({ code, message });
 }
 
-module.exports = { app: app.listen(port, function () {
-	console.log(`Example app listening on port ${port}!`);
-})}
+const logMessage = (req: Request, message: String) => {
+	console.log(`${ req.url.toUpperCase() }: ${ message }` );
+}
+
+// function distillError(error: IStripeError) {
+// 	return (({ code, message, param, type }) => ({ code, message, param, type }))(error)
+// }
+
+function distillError(error: any) {
+	//delete error.stack;
+	return error;
+}
+
+function close() {
+	server.close();
+	expressServer.close();
+}
+
+let mocha_callback: (users: mongodb.Collection)=>{};
+
+function set_mocha_callback(callback: (users: mongodb.Collection)=>{}) {
+	mocha_callback = callback;
+}
+
+module.exports = { app, set_mocha_callback, close }
