@@ -24,6 +24,15 @@ const joi = plainJoi.extend(joiZxcvbn(plainJoi));
 const domain = 'mg.rhythmandala.com';
 const apiKey = process.env.MG_KEY;
 const mailgun = new Mailgun({ apiKey, domain });
+const emailBody1 = `<p>Dear Rhythm Aficionado,
+	<p>Thank you for subscribing to RhythMandala! Our goal is to make complex \
+rhythmic structures from all across the globe simple, accessible and playable \
+so that everyone can enjoy the benefits of understanding and experiencing \
+rhythm in the body. If you have any questions, please email ryan@tapgym.com.
+	<p>Go ahead and <a href='https://app.rhythmandala.com?`
+const emailBody2 = `'>click this link to complete your registration</a> and \
+have fun!`
+
 
 // Stripe Init
 const stripe = new Stripe(process.env.STRIPE_KEY);
@@ -36,7 +45,7 @@ const mongodb_uri = process.env.MONGODB_URI;
 const mongoInit = async () => {
 	server = await mongodb.connect(mongodb_uri, { useNewUrlParser: true });
 	users = await server.db().collection('users');
-	await users.createIndex( { 'email': 1 }, { unique: true } );
+	users.createIndex( { 'email': 1 }, { unique: true } );
 };
 
 // Express Init
@@ -54,11 +63,6 @@ app.use(bodyParser.json());
 		mocha_callback(users);
 	}
 })()
-
-// mongoInit().then(() => {
-// 	expressServer = app.listen(port);
-
-// })
 
 app.use('/auth', async (req: Request, res: Response, next: NextFunction) => {
 	const { email } = req.body;
@@ -106,34 +110,18 @@ app.post('/signup', async (req: Request, res: Response) => {
 		handleError(req, res, 'DuplicateUserError', 'User already exists')
 		return;
 	}
-	let customer: Customer, subscription: Subscription;
+	let customer: Customer;
 	try {
 		logMessage(req, 'Awaiting customer creation');
 		customer = await stripe.customers.create({ source, email });
-		// console.log('Awaiting subscription creation');
-		// subscription = await stripe.subscriptions.create({
-		// 	customer: customer.id,
-		// 	items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
-		// });
 	} catch (err) {
-		const error = distillError(err)
-		if (!customer) {
-			console.error(`SIGNUP: Error creating customer [${email}]:\n`, error);
-		} else {
-			console.error(`SIGNUP: Error creating subscription for [${email}]):\n`, error)
-			try {
-				await stripe.customers.del(customer.id);
-			} catch (err) {
-				console.error('SIGNUP: Customer deletion error:\n', distillError(err));
-			}
-		}
-		res.status(400).json(error);
+		handleError(req, res, err.type, err.message);
 	 	return;
 	}
 	const card = customer.sources.data.find (
 		source => source.id === customer.default_source
 	) as ICard;
-	logMessage(req, `Successful with username [${email}]`);
+	logMessage(req, `Successful signup with username [${email}]`);
 	const confirmation_key = to_base64(sodium.crypto_auth_keygen());
 	try {
 		const hash = sodium.crypto_pwhash_str(
@@ -155,20 +143,28 @@ app.post('/signup', async (req: Request, res: Response) => {
 		res.status(400).json(distillError(err));
 		return;
 	}
-	console.log("should be emailing")
 	const data = {
 	  from: 'RhythMandala <signups@rhythmandala.com>',
 	  to: email,
-	  subject: 'Complete Signup',
-	  text: 'Thank you for signing up for RhythMandala!\n' + confirmation_key
+	  subject: 'Follow Link to Complete Signup',
+	  html: `${emailBody1}email=${email}&key=${confirmation_key}${emailBody2}`
 	};
-
-	mailgun.messages().send(data, function (error, body) {
-	  console.log(body);
-	});
+	const mg_response = await mailgun.messages().send(data);
+	console.log(mg_response);
 	res.send();
 });
 
+
+				// await stripe.customers.del(customer.id);
+		// 	} catch (err) {
+		// 		console.error('SIGNUP: Customer deletion error:\n', distillError(err));
+		// 	}
+		// }
+		// console.log('Awaiting subscription creation');
+		// subscription = await stripe.subscriptions.create({
+		// 	customer: customer.id,
+		// 	items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
+		// });
 // app.post('/confirm_email', async function(req: Request, res: Response) {
 // 	const validation = confirm_email_schema.validate(req.body)
 // 	if (validation.error) {
@@ -245,7 +241,7 @@ const logMessage = (req: Request, message: String) => {
 // }
 
 function distillError(error: any) {
-	//delete error.stack;
+	delete error.stack;
 	return error;
 }
 

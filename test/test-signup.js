@@ -35,7 +35,6 @@ tests = [
   ],
   ["- Missing password -", { email: email, source: token }],
   ["- Missing token -", { password: password, email: email }],
-  //['with bad token',                                { password: password, email: email, source: 'asdf'}], //touches stripe
   ["- Missing email -", { password: password, source: token }],
   ["- Bad email -", { password: password, source: token, email: "asdf" }],
   ["- Blank email -", { email: "", password: password, source: token }],
@@ -52,7 +51,7 @@ describe("--- TESTING SIGNUP ---", () => {
   describe("-- With parameters that don't meet joi validation --", () => {
     tests.forEach(test => {
       describe(test[0], function() {
-        it("should return an error", done => {
+        it("should return a ValidationError", done => {
           // nock('https://api.stripe.com', { allowUnmocked: true, encodedQueryParams:false })
           // .post('/v1/customers', qs({source:'asdf', email: email})).reply(400,{"error":{"code":"BAD_SOURCE_MOCK","type":"invalid_request_error"}})
 
@@ -81,6 +80,22 @@ describe("--- TESTING SIGNUP ---", () => {
       });
     });
   });
+
+  describe("-- With invalid stripe token --", () => {
+    it('should return a StripeInvalidRequestError', done => {
+      chai
+            .request(server)
+            .post("/signup")
+            .send( { password: password, email: email, source: 'asdf'} )
+            .end(function(err, res) {
+              res.body.should.have.property('code', 'StripeInvalidRequestError');
+              res.should.have.status(400);
+              handleError(res);
+              done();
+            });
+        }).timeout(4000);
+      })
+  
 
   describe("-- With existing email --", async () => {
     before(async () => {
