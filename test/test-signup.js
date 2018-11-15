@@ -1,8 +1,7 @@
 const chai = require("chai");
 const chaiHttp = require("chai-http");
 const server = require("../dist/app").app; // to make api calls
-const callback = require('../dist/app').set_mocha_callback;
-const close = require('../dist/app').close; // to close mongo and express server
+const close = require("../dist/app").close; // to close mongo and express server
 const should = chai.should();
 const nock = require("nock");
 const qs = require("querystring").stringify;
@@ -12,130 +11,113 @@ const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
 chai.use(chaiHttp);
-const url = process.env.MONGODB_URI;
 
+let getUsers = require("../dist/app").getUsers;
 let users;
+before (() => users = getUsers()); // This depends on mochaInit.js to work
 
-before ( done => {
-  function getUsers(cb_users) {
-    users = cb_users;
-    done();
-  }
-  callback(getUsers);
-})
-
-after (() => {
-  close(); // so mocha doesn't hang without --exit
-})
+after(close); // so mocha doesn't hang without --exit
 
 tests = [
-  [
-    "- Weak password -",
-    { password: "mypassword3", source: token, email: email }
-  ],
-  ["- Missing password -", { email: email, source: token }],
-  ["- Missing token -", { password: password, email: email }],
-  ["- Missing email -", { password: password, source: token }],
-  ["- Bad email -", { password: password, source: token, email: "asdf" }],
-  ["- Blank email -", { email: "", password: password, source: token }],
-  ["- Blank token -", { email: email, password: password, source: "" }],
-  ["- Blank password -", { email: email, password: "", source: token }]
+  ["weak password", { password: "mypassword3", source: token, email: email }],
+  ["missing password", { email: email, source: token }],
+  ["missing token", { password: password, email: email }],
+  ["missing email", { password: password, source: token }],
+  ["bad email", { password: password, source: token, email: "asdf" }],
+  ["blank email", { email: "", password: password, source: token }],
+  ["blank token", { email: email, password: password, source: "" }],
+  ["blank password", { email: email, password: "", source: token }]
   //['with card fails after successful attachment',   { email: email, password: password, source: 'tok_chargeCustomerFail' }] //touches stripe
 ];
 
 //nock.recorder.rec();
+// nock('https://api.stripe.com', { allowUnmocked: true, encodedQueryParams:false })
+// .post('/v1/customers', qs({source:'asdf', email: email})).reply(400,{"error":{"code":"BAD_SOURCE_MOCK","type":"invalid_request_error"}})
 
-const handleError = (res) => console.log(`MOCHA/CHAI: ${res.body.code}: ${res.body.message}`);
+// nock("https://api.stripe.com", { allowUnmocked: true })
+//   .filteringPath(() => "")
+//   .delete("")
+//   .reply(400, {
+//     error: {
+//       code: "DELETION_ERROR_MOCK",
+//       type: "invalid_request_error"
+//     }
+//   });
+
+const handleError = res =>
+  console.log(`MOCHA/CHAI: ${res.body.code}: ${res.body.message}`);
 
 describe("--- TESTING SIGNUP ---", () => {
-  describe("-- With parameters that don't meet joi validation --", () => {
-    tests.forEach(test => {
-      describe(test[0], function() {
-        it("should return a ValidationError", done => {
-          // nock('https://api.stripe.com', { allowUnmocked: true, encodedQueryParams:false })
-          // .post('/v1/customers', qs({source:'asdf', email: email})).reply(400,{"error":{"code":"BAD_SOURCE_MOCK","type":"invalid_request_error"}})
+  tests.forEach(test => {
+    describe(`-- With parameters that fail joi validation due to ${
+      test[0]
+    } --`, async () => {
+      it("should return a ValidationError", async () => {
+        // Exercise
+        res = await chai
+          .request(server)
+          .post("/signup")
+          .send(test[1]);
 
-          // nock("https://api.stripe.com", { allowUnmocked: true })
-          //   .filteringPath(() => "")
-          //   .delete("")
-          //   .reply(400, {
-          //     error: {
-          //       code: "DELETION_ERROR_MOCK",
-          //       type: "invalid_request_error"
-          //     }
-          //   });
-          // Setup: none
-          // Exercise
-          chai
-            .request(server)
-            .post("/signup")
-            .send(test[1])
-            .end(function(err, res) {
-              res.body.should.have.property('code', 'ValidationError');
-              res.should.have.status(400);
-              handleError(res);
-              done();
-            });
-        }).timeout(4000);
+        // Verify
+        res.body.should.have.property("code", "ValidationError");
+        res.should.have.status(400);
+        handleError(res);
       });
     });
   });
 
   describe("-- With invalid stripe token --", () => {
-    it('should return a StripeInvalidRequestError', done => {
-      chai
-            .request(server)
-            .post("/signup")
-            .send( { password: password, email: email, source: 'asdf'} )
-            .end(function(err, res) {
-              res.body.should.have.property('code', 'StripeInvalidRequestError');
-              res.should.have.status(400);
-              handleError(res);
-              done();
-            });
-        }).timeout(4000);
-      })
-  
-
-  describe("-- With existing email --", async () => {
-    before(async () => {
-      // Setup
-      try {
-        await users.insertOne({ email: "justinfrancos@gmail.com" });
-      } catch (err) {
-        console.error(err);
-      }
-    });
-    it("should return 400", done => {
+    it("should return a StripeInvalidRequestError", async () => {
       // Exercise
-      chai
+      res = await chai
         .request(server)
         .post("/signup")
-        .send({ email: email, password: password, source: token })
-        // Verify
-        .end(function(err, res) {
-          res.body.should.have.property('code', 'DuplicateUserError');
-          res.should.have.status(400);
-          handleError(res);
-          done();
-        });
+        .send({ password: password, email: email, source: "asdf" });
+
+      // Verify
+      res.body.should.have.property("code", "StripeInvalidRequestError");
+      res.should.have.status(400);
+      handleError(res);
     }).timeout(4000);
-    // Teardown
-    after(() => users.drop());
   });
 
-  describe("with valid parameters", () => {
-    it("should return 200 and no error", done => {
-      chai
+  describe("-- With existing email --", () => {
+    it("should return 400 with code: DuplicateUserError", async () => {
+      // Setup
+      await users.insertOne({ email: "justinfrancos@gmail.com" });
+
+      // Exercise
+      const res = await chai
         .request(server)
         .post("/signup")
-        .send({ email: email, password: password, source: token })
-        .end(function(err, res) {
-          res.body.should.not.include.key('code');
-          res.should.have.status(200);
-          done();
-        });
+        .send({ email: email, password: password, source: token });
+
+      // Verify
+      handleError(res);
+      res.body.should.have.property("code", "DuplicateUserError");
+      res.should.have.status(400);
+
+      // Teardown
+      users.drop();
     }).timeout(4000);
-    after(() => users.drop());
+  });
+
+  describe("-- With valid parameters --", () => {
+    it("should return 200 and no error", async () => {
+      // Exercise
+      const res = await chai
+        .request(server)
+        .post("/signup")
+        .send({ email: email, password: password, source: token });
+
+      //Verify
+      res.body.should.not.include.key("code");
+      res.body.should.include.keys("mac", "valid_until");
+      res.should.have.status(200);
+
+      // Teardown
+      users.drop();
+    }).timeout(4000);
   });
 });

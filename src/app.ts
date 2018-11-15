@@ -1,4 +1,3 @@
-
 import assert from 'assert';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
@@ -45,7 +44,7 @@ const mongodb_uri = process.env.MONGODB_URI;
 const mongoInit = async () => {
 	server = await mongodb.connect(mongodb_uri, { useNewUrlParser: true });
 	users = await server.db().collection('users');
-	users.createIndex( { 'email': 1 }, { unique: true } );
+	await users.createIndex( { 'email': 1 }, { unique: true } );
 };
 
 // Express Init
@@ -60,7 +59,8 @@ app.use(bodyParser.json());
 	await mongoInit();
 	expressServer = await app.listen(port);
 	if (mocha_callback) {
-		mocha_callback(users);
+		//mocha_callback(users);
+		mocha_callback();
 	}
 })()
 
@@ -105,7 +105,7 @@ app.post('/signup', async (req: Request, res: Response) => {
 		return;
 	}
 	const { email, password, source } = validation.value;
-	const user = await users.findOne({ email });
+	let user = await users.findOne({ email });
 	if (user) {
 		handleError(req, res, 'DuplicateUserError', 'User already exists')
 		return;
@@ -123,17 +123,15 @@ app.post('/signup', async (req: Request, res: Response) => {
 	) as ICard;
 	logMessage(req, `Successful signup with username [${email}]`);
 	const confirmation_key = to_base64(sodium.crypto_auth_keygen());
+	const signing_key = Buffer.from(sodium.crypto_auth_keygen());
 	try {
-		const hash = sodium.crypto_pwhash_str(
+		const pwhash = sodium.crypto_pwhash_str(
 	 		req.body.password,
 		 	sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
 			sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
 		await users.insertOne({
-			email: email,
-			pwhash: hash,
+			email, signing_key, confirmation_key, pwhash,
 			stripe_cust: customer.id,
-			signing_key: Buffer.from(sodium.crypto_auth_keygen()),
-			confirmation_key: confirmation_key,
 			brand: card.brand,
 			last4: card.last4,
 			exp_year: card.exp_year,
@@ -151,7 +149,7 @@ app.post('/signup', async (req: Request, res: Response) => {
 	};
 	const mg_response = await mailgun.messages().send(data);
 	console.log(mg_response);
-	res.send();
+	res.send(generateTokenDict(signing_key));
 });
 
 
@@ -165,27 +163,24 @@ app.post('/signup', async (req: Request, res: Response) => {
 		// 	customer: customer.id,
 		// 	items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
 		// });
-// app.post('/confirm_email', async function(req: Request, res: Response) {
-// 	const validation = confirm_email_schema.validate(req.body)
-// 	if (validation.error) {
-// 		console.error('SIGNUP: validation error', validation.error.details[0]);
-// 		res.status(400).json(validation.error.details[0]);
-// 		return;
-// 	}
-// 	const { email, key } = validation.value;
-// 	const keyBuffer = Buffer.from(key, 'base64');
-// 	const user = await users.findOne({email});
-// 	if (keyBuffer.equals(user['confirmation_key'].buffer)) {
-// 		await users.findOneAndUpdate({email: email}, { $unset: { confirmation_key: ''}});
-// 		const auth = new sodium.Auth(user['key'].buffer);
-// 		const valid_until = (Date.now() + token_window).toString();
-// 		const mac = auth.generate(valid_until);
-// 		console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with username [${email}]`);
-// 		res.send( { valid_until: valid_until, mac: mac.toString('base64') } );
-// 	} else {
-// 		res.status(400).send();
-// 	}
-// })
+
+app.post('/confirm_email', async function(req: Request, res: Response) {
+	const validation = confirm_email_schema.validate(req.body)
+	if (validation.error) {
+		handleError(req, res, validation.error.name, validation.error.message );
+		return;
+	}
+	const { email, key } = validation.value;
+	const user = await users.findOne({email});
+	if (key == user['confirmation_key']) {
+		await users.findOneAndUpdate({email: email}, { $unset: { confirmation_key: ''}});
+		//const token_dict = generateTokenDict(user['key']);
+		console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
+		res.send()// token_dict );
+	} else {
+		res.status(400).send();
+	}
+});
 
 app.post('/login', async function (req: Request, res: Response) {
 	const user = await users.findOne({email: req.body.email});
@@ -250,10 +245,14 @@ function close() {
 	expressServer.close();
 }
 
-let mocha_callback: (users: mongodb.Collection)=>{};
-
-function set_mocha_callback(callback: (users: mongodb.Collection)=>{}) {
-	mocha_callback = callback;
+function getUsers () {
+	return users;
 }
 
-module.exports = { app, set_mocha_callback, close }
+let mocha_callback: () => {} ;//(users: mongodb.Collection) => {};
+
+function set_mocha_callback(callback: () => {}) {// (users: mongodb.Collection)=>{}) {
+	 mocha_callback = callback;
+}
+
+module.exports = { app, set_mocha_callback, close, users, getUsers }

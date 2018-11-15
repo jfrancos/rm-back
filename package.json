@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "npm run build",
     "build": "tsc",
-    "test": "node node_modules/.bin/nyc mocha --exit",
+    "test": "node node_modules/.bin/nyc mocha",
     "start": "node dist/app.js",
     "coverage": "node node_modules/.bin/nyc cover _mocha -- -R spec",
     "coveralls": "cat ./coverage/lcov.info | node node_modules/.bin/coveralls"
