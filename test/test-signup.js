@@ -12,10 +12,10 @@ const token = "tok_visa_debit";
 
 chai.use(chaiHttp);
 
-let getUsers = require("../dist/app").getUsers;
+const getUsers = require("../dist/app").getUsers;
 let users;
-before (() => users = getUsers()); // This depends on mochaInit.js to work
 
+before (() => users = getUsers()); // This depends on mochaInit.js to work
 after(close); // so mocha doesn't hang without --exit
 
 tests = [
@@ -79,7 +79,7 @@ describe("--- TESTING SIGNUP ---", () => {
       res.body.should.have.property("code", "StripeInvalidRequestError");
       res.should.have.status(400);
       handleError(res);
-    }).timeout(4000);
+    }).timeout(10000);
   });
 
   describe("-- With existing email --", () => {
@@ -100,7 +100,7 @@ describe("--- TESTING SIGNUP ---", () => {
 
       // Teardown
       users.drop();
-    }).timeout(4000);
+    }).timeout(10000);
   });
 
   describe("-- With valid parameters --", () => {
@@ -118,6 +118,6 @@ describe("--- TESTING SIGNUP ---", () => {
 
       // Teardown
       users.drop();
-    }).timeout(4000);
+    }).timeout(10000);
   });
 });
