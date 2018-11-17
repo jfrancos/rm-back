@@ -4,7 +4,7 @@ const app = require("../dist/app")
 const should = chai.should();
 const nock = require("nock");
 const qs = require("querystring").stringify;
-
+const sodium = require ('libsodium-wrappers-sumo');
 const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
@@ -25,7 +25,8 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Setup
 			await users.insertOne({
 				email: "justinfrancos@gmail.com",
-				confirmation_key: "confirmation_key"
+				confirmation_key: "confirmation_key",
+				signing_key: Buffer.from (sodium.crypto_auth_keygen())
 			});
 
 			// Exercise
@@ -38,8 +39,9 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			const user = await users.findOne({
 				email: "justinfrancos@gmail.com"
 			});
+			res.should.have.status(200);
 			user.should.not.contain.key("confirmation_key");
-			console.log(user);
+			res.body.should.include.keys("mac", "valid_until");
 
 			// Teardown
 			users.drop();

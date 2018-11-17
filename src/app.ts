@@ -173,9 +173,14 @@ app.post('/confirm_email', async function(req: Request, res: Response) {
 	const user = await users.findOne({email});
 	if (key == user['confirmation_key']) {
 		await users.findOneAndUpdate({email: email}, { $unset: { confirmation_key: ''}});
-		//const token_dict = generateTokenDict(user['key']);
+		let token_dict
+		try {
+			token_dict = generateTokenDict(user['signing_key'].buffer);
+		} catch (err) {
+			console.log(err);
+		}
 		console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
-		res.send()// token_dict );
+		res.send( token_dict );
 	} else {
 		res.status(400).send();
 	}
