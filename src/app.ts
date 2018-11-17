@@ -59,7 +59,6 @@ app.use(bodyParser.json());
 	await mongoInit();
 	expressServer = await app.listen(port);
 	if (mocha_callback) {
-		//mocha_callback(users);
 		mocha_callback();
 	}
 })()
@@ -251,8 +250,8 @@ function getUsers () {
 
 let mocha_callback: () => {};
 
-function set_mocha_callback(callback: () => {}) {
+function setMochaCallback(callback: () => {}) {
 	 mocha_callback = callback;
 }
 
-module.exports = { app, set_mocha_callback, close, getUsers }
+module.exports = { app, setMochaCallback, close, getUsers }

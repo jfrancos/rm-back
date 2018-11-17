@@ -9,13 +9,11 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-const server = app.app
+const server = app.app;
 
 chai.use(chaiHttp);
 
-//const getUsers = require("../dist/app").getUsers;
 let users;
-
 before (() => users = app.getUsers()); // This depends on mochaInit.js to work
 
 const handleError = res =>
