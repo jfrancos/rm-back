@@ -1,7 +1,6 @@
 const chai = require("chai");
 const chaiHttp = require("chai-http");
-const server = require("../dist/app").app; // to make api calls
-const close = require("../dist/app").close; // to close mongo and express server
+const app = require("../dist/app");
 const should = chai.should();
 const nock = require("nock");
 const qs = require("querystring").stringify;
@@ -10,13 +9,13 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
+const server = app.app
+
 chai.use(chaiHttp);
 
-const getUsers = require("../dist/app").getUsers;
 let users;
 
-before (() => users = getUsers()); // This depends on mochaInit.js to work
-after(close); // so mocha doesn't hang without --exit
+before (() => users = app.getUsers()); // This depends on mochaInit.js to work
 
 tests = [
   ["weak password", { password: "mypassword3", source: token, email: email }],

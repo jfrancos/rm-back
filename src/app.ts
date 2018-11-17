@@ -249,10 +249,10 @@ function getUsers () {
 	return users;
 }
 
-let mocha_callback: () => {} ;//(users: mongodb.Collection) => {};
+let mocha_callback: () => {};
 
-function set_mocha_callback(callback: () => {}) {// (users: mongodb.Collection)=>{}) {
+function set_mocha_callback(callback: () => {}) {
 	 mocha_callback = callback;
 }
 
-module.exports = { app, set_mocha_callback, close, users, getUsers }
+module.exports = { app, set_mocha_callback, close, getUsers }
