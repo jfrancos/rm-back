@@ -4,7 +4,7 @@ const app = require("../dist/app")
 const should = chai.should();
 const nock = require("nock");
 const qs = require("querystring").stringify;
-const sodium = require ('libsodium-wrappers-sumo');
+const sodium = require('libsodium-wrappers-sumo');
 const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
@@ -14,7 +14,11 @@ const server = app.app;
 chai.use(chaiHttp);
 
 let users;
-before (() => users = app.getUsers()); // This depends on mochaInit.js to work
+before (async function () {
+	this.timeout(100000);
+	await sodium.ready;
+	users = app.getUsers()
+}); // This depends on mochaInit.js to work
 
 const handleError = res =>
 	console.log(`MOCHA/CHAI: ${res.body.code}: ${res.body.message}`);
