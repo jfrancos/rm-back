@@ -90,7 +90,7 @@ describe("--- TESTING SIGNUP ---", () => {
       const res = await chai
         .request(server)
         .post("/signup")
-        .send({ email: email, password: password, source: token });
+        .send({ email, password, source: token });
 
       // Verify
       handleError(res);
@@ -108,7 +108,7 @@ describe("--- TESTING SIGNUP ---", () => {
       const res = await chai
         .request(server)
         .post("/signup")
-        .send({ email: email, password: password, source: token });
+        .send({ email, password, source: token });
 
       //Verify
       res.body.should.not.include.key("code");

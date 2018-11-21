@@ -32,7 +32,9 @@
     "libsodium-wrappers-sumo": "^0.7.3",
     "mailgun-js": "^0.21.0",
     "mongodb": "^3.1.9",
+    "ngrok": "^3.1.0",
     "save-svg-as-png": "^1.4.6",
+    "sinon-chai": "^3.2.0",
     "stripe": "^6.13.0",
     "zxcvbn": "^4.4.2"
   },

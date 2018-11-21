@@ -97,18 +97,26 @@ app.post('/auth/refresh_auth_key', async (req: Request, res: Response) => {
 	res.send({ message: 'invalid' });
 });
 
+const signupSchema = joi.object().keys({
+    password: joi.string().zxcvbn(3).required(),
+    source: joi.string().required(),
+    email: joi.string().email().required()
+});
+
 app.post('/signup', async (req: Request, res: Response) => {
-	const validation = signup_schema.validate(req.body)
+	const validation = signupSchema.validate(req.body)
 	if (validation.error) {
 		handleError(req, res, validation.error.name, validation.error.message );
 		return;
 	}
+
 	const { email, password, source } = validation.value;
 	let user = await users.findOne({ email });
 	if (user) {
 		handleError(req, res, 'DuplicateUserError', 'User already exists')
 		return;
 	}
+
 	let customer: Customer;
 	try {
 		logMessage(req, 'Awaiting customer creation');
@@ -130,7 +138,7 @@ app.post('/signup', async (req: Request, res: Response) => {
 			sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE);
 		await users.insertOne({
 			email, signing_key, confirmation_key, pwhash,
-			stripe_cust: customer.id,
+			stripe_id: customer.id,
 			brand: card.brand,
 			last4: card.last4,
 			exp_year: card.exp_year,
@@ -157,33 +165,67 @@ app.post('/signup', async (req: Request, res: Response) => {
 		// 		console.error('SIGNUP: Customer deletion error:\n', distillError(err));
 		// 	}
 		// }
-		// console.log('Awaiting subscription creation');
-		// subscription = await stripe.subscriptions.create({
-		// 	customer: customer.id,
-		// 	items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
-		// });
+		
+
+const confirmEmailSchema = joi.object().keys({ // how to make sure only these two are included
+	email: joi.string().required(),
+	key: joi.string().required()
+})
 
 app.post('/confirm_email', async function(req: Request, res: Response) {
-	const validation = confirm_email_schema.validate(req.body)
+	// Joi validation
+	const validation = confirmEmailSchema.validate(req.body)
 	if (validation.error) {
 		handleError(req, res, validation.error.name, validation.error.message );
 		return;
 	}
+
+	const handleConfError = () => { // don't let on if an email exists
+		handleError(req, res, 'EmailConfirmationError', `There was an error confirming ${email}`)
+	}
+
+	// Check if user exists
 	const { email, key } = validation.value;
 	const user = await users.findOne({email});
-	if (key == user['confirmation_key']) {
-		await users.findOneAndUpdate({email: email}, { $unset: { confirmation_key: ''}});
-		let token_dict
-		try {
-			token_dict = generateTokenDict(user['signing_key'].buffer);
-		} catch (err) {
-			console.log(err);
-		}
-		console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
-		res.send( token_dict );
-	} else {
-		res.status(400).send();
+	if (!user) {
+		handleConfError();
+		console.log( 'MissingUserError', `User ${email} does not exist`)
+	 	return;
 	}
+
+	// Check if user is already confirmed
+	if (!user.confirmation_key) {
+		handleConfError();
+		console.log( 'UserAlreadyConfirmedError', 'User is already confirmed');
+		return;
+	}
+
+	// Check if key is correct
+	if (key != user['confirmation_key']) {
+		handleConfError();
+		console.log('ConfirmationKeyError', `Key does not match`);
+		return;
+	}
+
+	// Update DB
+	await users.findOneAndUpdate({email: email}, { $unset: { confirmation_key: ''}});
+	console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
+
+	// Create Stripe subscription
+	console.log('Awaiting subscription creation');
+	let subscription;
+	try {
+		subscription = await stripe.subscriptions.create({
+			customer: user.stripe_id,
+			items: [{ plan: 'plan_DrPVwslmSpiOT4' }]
+		});
+	} catch (err) {
+		res.send();
+		handleError(req, null, err.type, err.message);
+	 	return;
+	}
+
+	res.send();
 });
 
 app.post('/login', async function (req: Request, res: Response) {
@@ -199,17 +241,6 @@ app.post('/login', async function (req: Request, res: Response) {
 		res.send( { error: 'Login error' });
 	}
 });
-
-const signup_schema = joi.object().keys({
-    password: joi.string().zxcvbn(3).required(),
-    source: joi.string().required(),
-    email: joi.string().email().required()
-});
-
-const confirm_email_schema = joi.object().keys({
-	email: joi.string().email().required(),
-	key: joi.string().required()
-})
 
 const generateTokenDict = (key: Buffer) => {
 	const valid_until = (Date.now() + token_window).toString();
@@ -228,7 +259,9 @@ const to_base64 = (bytes: Uint8Array) => {
 const handleError = (req: Request, res: Response, code: String, message: String) => {
 	const path = req.url.toUpperCase();
 	logMessage(req, `${ code }: ${ message }`);
-	res.status(400).json({ code, message });
+	if (res) {
+		res.status(400).json({ code, message });
+	}
 }
 
 const logMessage = (req: Request, message: String) => {
