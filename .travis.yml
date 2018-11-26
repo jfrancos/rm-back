@@ -4,7 +4,7 @@ dist: xenial
 node_js: 10
 before_script:
   - echo "replSet = rs0" | sudo tee -a /etc/mongodb.conf
-  - sudo service mongodb restart
+  - sudo service mongod restart
   - sleep 10
   - mongo --eval 'rs.initiate()'
   - sleep 10
