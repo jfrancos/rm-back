@@ -3,6 +3,6 @@ dist: xenial
 #services: mongodb
 node_js:
   - "10"
-before_script: mongod --replSet "rs0"&
+before_script: mongod --replSet "rs0"& mongo --eval 'rs.initiate()'
 script: npm run test
 after_success: 'nyc report --reporter=text-lcov | coveralls'
