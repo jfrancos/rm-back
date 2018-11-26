@@ -1,8 +1,12 @@
 language: node_js
 dist: xenial
 #services: mongodb
-node_js:
-  - "10"
-before_script: mongod --replSet "rs0"& mongo --eval 'rs.initiate()'
+node_js: 10
+before_script:
+  - echo "replSet = rs0" | sudo tee -a /etc/mongodb.conf
+  - sudo service mongodb restart
+  - sleep 10
+  - mongo --eval 'rs.initiate()'
+  - sleep 10
 script: npm run test
 after_success: 'nyc report --reporter=text-lcov | coveralls'
