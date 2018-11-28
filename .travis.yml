@@ -2,10 +2,9 @@ language: node_js
 dist: xenial
 services: mongodb
 node_js: 10
-before_script:
-  - 'printf "replication:\n replSetName: rs0" | sudo tee -a /etc/mongod.conf'
-  - sudo service mongod restart
+before_install: 'printf "replication:\n replSetName: rs0" | sudo tee -a /etc/mongod.conf'
+  #- sudo service mongod restart
 #  - sleep 2
-  - mongo --eval 'rs.initiate()'
+before_script: mongo --eval 'rs.initiate()'
 script: npm run test
 after_success: 'nyc report --reporter=text-lcov | coveralls'
