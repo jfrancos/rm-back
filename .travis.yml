@@ -5,8 +5,7 @@ node_js: 10
 before_script:
   - 'printf "replication:\n replSetName: rs0" | sudo tee -a /etc/mongod.conf'
   - sudo service mongod restart
-  - sleep 2
+#  - sleep 2
   - mongo --eval 'rs.initiate()'
-  #- sleep 5
 script: npm run test
 after_success: 'nyc report --reporter=text-lcov | coveralls'
