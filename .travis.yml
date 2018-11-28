@@ -3,7 +3,7 @@ dist: xenial
 services: mongodb
 node_js: 10
 before_script:
-  - printf 'replication:\n replSetName: "rs0"' | sudo tee -a /etc/mongod.conf
+  - 'printf "replication:\n replSetName: rs0" | sudo tee -a /etc/mongod.conf'
   - sudo service mongod restart
   - sleep 5
   - mongo --eval 'rs.initiate()'
