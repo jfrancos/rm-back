@@ -12,6 +12,12 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
+
+
+process.on('uncaughtException', (err) => {
+  fs.writeSync(1, `Caught exception: ${err}\n`);
+});
+
 const server = app.app;
 
 chai.use(chaiHttp);
@@ -53,7 +59,11 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				res.body.should.have.property("code", "EmailConfirmationError");
 
 				// Teardown
-				await users.drop();
+				try {
+					await users.drop();
+				} catch (err) {
+					console.log(err)
+				}
 				console.log.restore();
 			});
 		});
@@ -81,7 +91,11 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				spy.should.have.been.calledWithMatch("MissingUserError");
 
 				// Teardown
-				await users.drop();
+				try {
+					await users.drop();
+				} catch (err) {
+					console.log(err)
+				}
 				console.log.restore();
 			});
 		});
@@ -92,7 +106,8 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				await users.insertOne({
 					email: "justinfrancos@gmail.com",
 					confirmation_key: "confirmation_key",
-					signing_key: Buffer.from(sodium.crypto_auth_keygen())
+					signing_key: Buffer.from(sodium.crypto_auth_keygen()),
+					monthly_prints: 0
 				});
 				const spy = sinon.spy(console, "log");
 
@@ -108,6 +123,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				res.should.have.status(400);
 				spy.should.have.been.calledWithMatch("ConfirmationKeyError");
 				res.body.should.have.property("code", "EmailConfirmationError");
+				user.should.have.property("monthly_prints", 0);
 
 				// Teardown
 				await users.drop();
@@ -120,30 +136,34 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Setup
 			await chai
 				.request(server)
-				.post("/signup")
+				.post("/user/signup")
 				.send({ email, password, source: token });
 			let user = await users.findOne({ email });
 			const key = user.confirmation_key;
 			//const spy = sinon.spy(app.handleStripeWebhook);
 
 			// Exercise
-			const res = await chai
+			const res = await chai   /// had await but i think that causes issues
 				.request(server)
 				.post("/confirm_email")
 				.send({ key, email });
 
-			// Wait for Stripe Webhooks to arrive
-			console.log('Awaiting subscription via webhook')
-			await new Promise(resolve => {
-				const stream = users.watch()
-				stream.on('change', async data => {
-					user = await users.findOne({ email });
-		 			if (user.monthly_prints === 5) {
-						resolve();
-						stream.close(); // does this unwatch the stream??
-					}
-				})	
-			})
+			console.log('confirmed')
+			user = await users.findOne({ email });
+			if (user.monthly_prints != 5) {
+				// Wait for Stripe Webhooks to arrive
+				console.log('Awaiting subscription via webhook')
+				await new Promise(resolve => {
+					const stream = users.watch()
+					stream.on('change', async data => {
+						user = await users.findOne({ email });
+			 			if (user.monthly_prints === 5) {
+							resolve();
+							stream.close(); // does this unwatch the stream??
+						}
+					});
+				});
+			}
 
 			// Verify
 			res.should.have.status(200);
@@ -152,7 +172,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 
 			// Teardown
 			await users.drop();
-		}).timeout(20000);
+		}).timeout(30000);
 	});
 
 	// describe("timing test", () => {
@@ -174,7 +194,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// email = "asdf@asdf.com";
 			await chai
 				.request(server)
-				.post("/signup")
+				.post("/user/signup")
 				.send({ email, password, source: "tok_chargeCustomerFail" });
 			let user = await users.findOne({ email });
 			const key = user.confirmation_key;

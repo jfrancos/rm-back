@@ -1,8 +1,10 @@
 import assert from "assert";
 import bodyParser from "body-parser";
 import "colors";
+import connectMongo from "connect-mongo";
 import dotenv from "dotenv";
 import express, { Request, Response, NextFunction, Application } from "express";
+import session from "express-session";
 import helmet from "helmet";
 import plainJoi from "joi";
 const joiZxcvbn = require("joi-zxcvbn");
@@ -12,14 +14,19 @@ import mongodb from "mongodb";
 import Stripe, { IStripeError, customers, subscriptions, ICard } from "stripe";
 import zxcvbn from "zxcvbn";
 import * as http from "http";
-// import _  from 'lodash';
-var diff = require("deep-diff").diff;
+// const fs = require ('fs');
+
+// var diff = require("deep-diff").diff;
 
 dotenv.config();
 type Customer = customers.ICustomer;
 type Subscription = subscriptions.ISubscription;
+const MongoStore = connectMongo(session);
 
-const token_window = 60000;
+// process.on('uncaughtException', (err) => {
+//   fs.writeSync(1, `Caught exception: ${err}\n`);
+// });
+
 const joi = plainJoi.extend(joiZxcvbn(plainJoi));
 
 // Mailgun Init
@@ -40,8 +47,10 @@ const stripe = new Stripe(process.env.STRIPE_KEY);
 const plan = process.env.STRIPE_PLAN;
 
 // Mongo Init
-let users: mongodb.Collection;
+let secret: string;
 let server: mongodb.MongoClient;
+let users: mongodb.Collection;
+let secrets: mongodb.Collection;
 const mongodb_uri = process.env.MONGODB_URI;
 const mongoInit = async () => {
 	server = await mongodb.connect(
@@ -49,8 +58,17 @@ const mongoInit = async () => {
 		{ useNewUrlParser: true }
 	);
 	users = await server.db().collection("users");
-	await users.createIndex({ email: 1 }, { unique: true });
-	await users.createIndex({ stripe_id: 1 }, { unique: true });
+	secrets = await server.db().collection("secrets");
+	try {
+		console.log("creating index");
+		await users.createIndex({ email: 1 }, { unique: true });
+	} catch (err) {
+		console.log(err);
+	}
+	if (await secrets.countDocuments() === 0) {
+		await secrets.insertOne({ secret: to_base64(sodium.crypto_auth_keygen()) });
+	}
+	secret = (await secrets.findOne({})).secret;
 };
 
 // Express Init
@@ -59,56 +77,39 @@ const port = process.env.PORT;
 let expressServer: http.Server;
 app.use(helmet());
 app.use(bodyParser.json());
+const store = new MongoStore({ url: mongodb_uri });
+let protectedSession;
 
 // Start DB then Express then Mocha callback
 (async () => {
+	await sodium.ready;
 	await mongoInit();
+	const resave = false;
+	const saveUninitialized = false;
+	const user = session({ store, secret, resave, saveUninitialized });
+	app.post("/user/*", user);
+	app.post("/user/signup", handleSignup);
+	app.post("/user/get_user", handleGetUser);
+	// app.post("/auth/login", handleLogin);
+	app.post("/confirm_email", handleConfirmEmail);
+	app.post("/stripe", handleStripeWebhook);
+
 	expressServer = await app.listen(port);
 	if (mocha_callback) {
 		mocha_callback();
 	}
 })();
 
-app.use("/auth", async (req: Request, res: Response, next: NextFunction) => {
-	const { email } = req.body;
-	const user = await users.findOne({ email: req.body.email });
-	const valid_until = req.body.valid_until;
-	const isValid = sodium.crypto_auth_verify(
-		from_base64(req.body.mac),
-		valid_until,
-		user["signing_key"].buffer
-	);
-	if (!isValid || Date.now() > parseInt(valid_until)) {
-		res.send({ error: "invalid" });
-	} else {
-		next();
-	}
-});
+const handleGetUser = async (req: Request, res: Response) => {
+	const user = await users.findOne({ email: req.session.email });
+	res.send({ user });
+};
 
 // app.post('/auth/delete', (req: Request, res: Response) => {
-// 	stripe.customers.del(customer.id).catch((err) => console.log('Customer deletion error:\n',
-// 		(({ rawType, code, param, message, detail }) => ({ rawType, code, param, message, detail }))(err)));
-// 	res.send();
+	// stripe.customers.del(customer.id).catch((err) => console.log('Customer deletion error:\n',
+	// 	(({ rawType, code, param, message, detail }) => ({ rawType, code, param, message, detail }))(err)));
+	// res.send();
 // });
-
-app.post("/auth/test", async (req: Request, res: Response) => {
-	const { email } = req.body;
-	const user = await users.findOne({ email });
-	res.send(generateTokenDict(user["signing_key"].buffer));
-});
-
-app.post("/auth/refresh_auth_key", async (req: Request, res: Response) => {
-	const { email } = req.body;
-	const user = await users.findOneAndUpdate(
-		{ email },
-		{
-			$set: {
-				signing_key: Buffer.from(sodium.crypto_auth_keygen())
-			}
-		}
-	);
-	res.send({ message: "invalid" });
-});
 
 const signupSchema = joi.object().keys({
 	password: joi
@@ -122,7 +123,7 @@ const signupSchema = joi.object().keys({
 		.required()
 });
 
-app.post("/signup", async (req: Request, res: Response) => {
+const handleSignup = async (req: Request, res: Response) => {
 	const validation = signupSchema.validate(req.body);
 	if (validation.error) {
 		handleError(req, res, validation.error.name, validation.error.message);
@@ -149,7 +150,6 @@ app.post("/signup", async (req: Request, res: Response) => {
 	) as ICard;
 	logMessage(req, `Successful signup with username [${email}]`);
 	const confirmation_key = to_base64(sodium.crypto_auth_keygen());
-	const signing_key = Buffer.from(sodium.crypto_auth_keygen());
 	try {
 		const pwhash = sodium.crypto_pwhash_str(
 			req.body.password,
@@ -158,7 +158,6 @@ app.post("/signup", async (req: Request, res: Response) => {
 		);
 		await users.insertOne({
 			email,
-			signing_key,
 			confirmation_key,
 			pwhash,
 			stripe_id: customer.id,
@@ -183,10 +182,11 @@ app.post("/signup", async (req: Request, res: Response) => {
 		subject: "Follow Link to Complete Signup",
 		html: `${emailBody1}email=${email}&key=${confirmation_key}${emailBody2}`
 	};
-	const mg_response = await mailgun.messages().send(data);
-	console.log(mg_response);
-	res.send(generateTokenDict(signing_key));
-});
+	// const mg_response = await mailgun.messages().send(data);
+	// console.log(mg_response);
+	req.session.email = email;
+	res.send();
+};
 
 const confirmEmailSchema = joi.object().keys({
 	// how to make sure only these two are included
@@ -194,7 +194,7 @@ const confirmEmailSchema = joi.object().keys({
 	key: joi.string().required()
 });
 
-app.post("/confirm_email", async function(req: Request, res: Response) {
+const handleConfirmEmail = async function(req: Request, res: Response) {
 	// Joi validation
 	const validation = confirmEmailSchema.validate(req.body);
 	if (validation.error) {
@@ -248,23 +248,24 @@ app.post("/confirm_email", async function(req: Request, res: Response) {
 	try {
 		subscription = await stripe.subscriptions.create({
 			customer: user.stripe_id,
-			items: [{ plan: "plan_DrPVwslmSpiOT4" }]
+			items: [{ plan }]
 		});
 	} catch (err) {
 		res.send();
 		handleError(req, null, err.type, err.message);
 		return;
 	}
-
 	res.send();
-});
+};
 
 const handleStripeWebhook = async (req: Request, res: Response) => {
-	//console.log(JSON.stringify(req.body, null, 4));
-	//console.log("New Webhook");
+	// console.log(JSON.stringify(req.body, null, 4));
+	console.log("New Webhook:");
 	const object = req.body.data.object;
+
 	const customer_id = object.customer || object.id;
 	let stripe_user, user;
+
 	try {
 		stripe_user = await stripe.customers.retrieve(customer_id);
 		// console.log(JSON.stringify(stripe_user, null, 4));
@@ -303,15 +304,12 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
 		//console.log(JSON.stringify(user, null, 4));
 		// console.log(customer_id.black.bgRed);
 		// console.log(req.body.type.black.bgRed);
-		res.send();
 	} catch (err) {
 		console.log(err);
 	}
 };
 
-app.post("/stripe", handleStripeWebhook);
-
-app.post("/login", async function(req: Request, res: Response) {
+const handleLogin = async function(req: Request, res: Response) {
 	const user = await users.findOne({ email: req.body.email });
 	const isValid = sodium.crypto_pwhash_str_verify(
 		user["pwhash"],
@@ -319,23 +317,13 @@ app.post("/login", async function(req: Request, res: Response) {
 	);
 	const email = req.body.email;
 	if (isValid) {
-		const dict = generateTokenDict(user["signing_key"].buffer);
 		console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
-		res.send(dict);
+		req.session.email = email;
+		res.send();
 	} else {
 		console.log(`LOGIN_FAILED: with username [${email}]`);
 		res.send({ error: "Login error" });
 	}
-});
-
-const generateTokenDict = (key: Buffer) => {
-	const valid_until = (Date.now() + token_window).toString();
-	const mac = sodium.crypto_auth(valid_until, key);
-	return { mac: to_base64(mac), valid_until: valid_until };
-};
-
-const from_base64 = (bytes: string) => {
-	return sodium.from_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING);
 };
 
 const to_base64 = (bytes: Uint8Array) => {
@@ -368,10 +356,11 @@ function distillError(error: any) {
 	return error;
 }
 
-function close() {
-	server.close();
-	expressServer.close();
-}
+const close = async () => {
+	await expressServer.close();
+	await server.close();
+	await (store as any).close();
+};
 
 function getUsers() {
 	return users;
@@ -383,4 +372,12 @@ function setMochaCallback(callback: () => {}) {
 	mocha_callback = callback;
 }
 
-module.exports = { app, setMochaCallback, close, getUsers, users, handleStripeWebhook, handleError }
+module.exports = {
+	app,
+	setMochaCallback,
+	close,
+	getUsers,
+	users,
+	handleStripeWebhook,
+	handleError
+};

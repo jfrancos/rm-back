@@ -55,7 +55,7 @@ describe("--- TESTING SIGNUP ---", () => {
         // Exercise
         res = await chai
           .request(server)
-          .post("/signup")
+          .post("/user/signup")
           .send(test[1]);
 
         // Verify
@@ -71,7 +71,7 @@ describe("--- TESTING SIGNUP ---", () => {
       // Exercise
       res = await chai
         .request(server)
-        .post("/signup")
+        .post("/user/signup")
         .send({ password: password, email: email, source: "asdf" });
 
       // Verify
@@ -89,7 +89,7 @@ describe("--- TESTING SIGNUP ---", () => {
       // Exercise
       const res = await chai
         .request(server)
-        .post("/signup")
+        .post("/user/signup")
         .send({ email, password, source: token });
 
       // Verify
@@ -107,12 +107,12 @@ describe("--- TESTING SIGNUP ---", () => {
       // Exercise
       const res = await chai
         .request(server)
-        .post("/signup")
+        .post("/user/signup")
         .send({ email, password, source: token });
 
       //Verify
       res.body.should.not.include.key("code");
-      res.body.should.include.keys("mac", "valid_until");
+      // res.body.should.include.keys("token");
       res.should.have.status(200);
 
       // Teardown
