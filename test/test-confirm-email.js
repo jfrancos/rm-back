@@ -14,9 +14,9 @@ const token = "tok_visa_debit";
 
 
 
-process.on('uncaughtException', (err) => {
-  fs.writeSync(1, `Caught exception: ${err}\n`);
-});
+// process.on('uncaughtException', (err) => {
+//   fs.writeSync(1, `Caught exception: ${err}\n`);
+// });
 
 const server = app.app;
 
@@ -40,8 +40,8 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				// Setup
 				await users.insertOne({
 					email: "justinfrancos@gmail.com",
-					confirmation_key: "confirmation_key",
-					signing_key: Buffer.from(sodium.crypto_auth_keygen())
+					confirmationKey: "confirmation_key",
+					signingKey: Buffer.from(sodium.crypto_auth_keygen())
 				});
 				const spy = sinon.spy(console, "log");
 
@@ -53,7 +53,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 
 				// Verify
 				const user = await users.findOne({ email });
-				user.should.contain.key("confirmation_key");
+				user.should.contain.key("confirmationKey");
 				res.should.have.status(400);
 				spy.should.have.been.calledWithMatch("MissingUserError");
 				res.body.should.have.property("code", "EmailConfirmationError");
@@ -85,7 +85,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 
 				// Verify
 				const user = await users.findOne({ email });
-				user.should.not.contain.key("confirmation_key");
+				user.should.not.contain.key("confirmationKey");
 				res.body.should.have.property("code", "EmailConfirmationError");
 				res.should.have.status(400);
 				spy.should.have.been.calledWithMatch("MissingUserError");
@@ -105,9 +105,9 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				// Setup
 				await users.insertOne({
 					email: "justinfrancos@gmail.com",
-					confirmation_key: "confirmation_key",
-					signing_key: Buffer.from(sodium.crypto_auth_keygen()),
-					monthly_prints: 0
+					confirmationKey: "confirmation_key",
+					signingKey: Buffer.from(sodium.crypto_auth_keygen()),
+					rmMonthlyPrints: 0
 				});
 				const spy = sinon.spy(console, "log");
 
@@ -119,11 +119,11 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 
 				// Verify
 				const user = await users.findOne({ email });
-				user.should.contain.key("confirmation_key");
+				user.should.contain.key("confirmationKey");
 				res.should.have.status(400);
 				spy.should.have.been.calledWithMatch("ConfirmationKeyError");
 				res.body.should.have.property("code", "EmailConfirmationError");
-				user.should.have.property("monthly_prints", 0);
+				user.should.have.property("rmMonthlyPrints", 0);
 
 				// Teardown
 				await users.drop();
@@ -139,7 +139,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				.post("/user/signup")
 				.send({ email, password, source: token });
 			let user = await users.findOne({ email });
-			const key = user.confirmation_key;
+			const key = user.confirmationKey;
 			//const spy = sinon.spy(app.handleStripeWebhook);
 
 			// Exercise
@@ -150,14 +150,14 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 
 			console.log('confirmed')
 			user = await users.findOne({ email });
-			if (user.monthly_prints != 5) {
+			if (user.rmMonthlyPrints != 5) {
 				// Wait for Stripe Webhooks to arrive
 				console.log('Awaiting subscription via webhook')
 				await new Promise(resolve => {
 					const stream = users.watch()
 					stream.on('change', async data => {
 						user = await users.findOne({ email });
-			 			if (user.monthly_prints === 5) {
+			 			if (user.rmMonthlyPrints === 5) {
 							resolve();
 							stream.close(); // does this unwatch the stream??
 						}
@@ -167,8 +167,8 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 
 			// Verify
 			res.should.have.status(200);
-			user.should.not.contain.key("confirmation_key");
-			user.should.have.property("monthly_prints", 5);
+			user.should.not.contain.key("confirmationKey");
+			user.should.have.property("rmMonthlyPrints", 5);
 
 			// Teardown
 			await users.drop();
@@ -197,7 +197,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				.post("/user/signup")
 				.send({ email, password, source: "tok_chargeCustomerFail" });
 			let user = await users.findOne({ email });
-			const key = user.confirmation_key;
+			const key = user.confirmationKey;
 
 			// Exercise
 			const res = await chai
@@ -208,7 +208,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Verify
 			user = await users.findOne({ email });
 			res.should.have.status(200);
-			user.should.not.contain.key("confirmation_key");
+			user.should.not.contain.key("confirmationKey");
 
 			// Teardown
 			await users.drop();
@@ -220,10 +220,10 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Setup
 			await users.insertOne({
 				email,
-				confirmation_key: "confirmation_key",
-				stripe_id: "asdf",
-				current_period_end: 0,
-				signing_key: Buffer.from(sodium.crypto_auth_keygen())
+				confirmationKey: "confirmation_key",
+				stripeId: "asdf",
+				subscriptionCurrentPeriodEnd: 0,
+				signingKey: Buffer.from(sodium.crypto_auth_keygen())
 			});
 
 			// Exercise
@@ -235,7 +235,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Verify
 			const user = await users.findOne({ email });
 			res.should.have.status(200);
-			user.should.not.contain.key("confirmation_key");
+			user.should.not.contain.key("confirmationKey");
 
 			// Teardown
 			await users.drop();

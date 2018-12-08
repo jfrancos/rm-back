@@ -31,7 +31,7 @@ describe("-- Confirming a newly created account with valid parameters --", () =>
 			.send({ email, password, source: token });
 
 		let user = await users.findOne({ email });
-		const key = user.confirmation_key;
+		const key = user.confirmationKey;
 		res = await agent
 			.post("/confirm_email")
 			.send({ key, email });
