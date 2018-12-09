@@ -30,6 +30,12 @@ const MongoStore = connectMongo(expressSession);
 
 const joi = plainJoi.extend(joiZxcvbn());
 
+declare module "express" {
+    export interface Request {
+        user?: any;
+    }
+}
+
 // Mailgun Init
 const domain = "mg.rhythmandala.com";
 const apiKey = process.env.MG_KEY;
@@ -118,8 +124,6 @@ const sessionStore = new MongoStore({ url: mongodbUri });
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
     const user = await users.findOne({ email: req.session.email });
-    console.log('getting');
-
     if (!user) {
         res.sendStatus(401);
         return;
@@ -279,7 +283,7 @@ const handleConfirmEmail = async (req: Request, res: Response) => { // should ke
         handleError(req, null, err.type, err.message);
         return;
     }
-    req.session.email = email; 
+    req.session.email = email;
     res.send();
 };
 
