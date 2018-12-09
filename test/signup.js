@@ -10,7 +10,7 @@ const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
 const server = app.app
-
+const signup = "/signup"
 chai.use(chaiHttp);
 
 let users;
@@ -25,7 +25,8 @@ tests = [
   ["bad email", { password: password, source: token, email: "asdf" }],
   ["blank email", { email: "", password: password, source: token }],
   ["blank token", { email: email, password: password, source: "" }],
-  ["blank password", { email: email, password: "", source: token }]
+  ["blank password", { email: email, password: "", source: token }],
+  ["extra field", { email, password, source: token, extra: 'extra'}]
   //['with card fails after successful attachment',   { email: email, password: password, source: 'tok_chargeCustomerFail' }] //touches stripe
 ];
 
@@ -55,13 +56,20 @@ describe("--- TESTING SIGNUP ---", () => {
         // Exercise
         res = await chai
           .request(server)
-          .post("/user/signup")
+          .post(signup)
           .send(test[1]);
 
         // Verify
         res.body.should.have.property("code", "ValidationError");
         res.should.have.status(400);
         handleError(res);
+
+        // Teardown
+        try {
+          await users.drop();
+        } catch (err) {
+
+        }
       });
     });
   });
@@ -71,7 +79,7 @@ describe("--- TESTING SIGNUP ---", () => {
       // Exercise
       res = await chai
         .request(server)
-        .post("/user/signup")
+        .post(signup)
         .send({ password: password, email: email, source: "asdf" });
 
       // Verify
@@ -89,7 +97,7 @@ describe("--- TESTING SIGNUP ---", () => {
       // Exercise
       const res = await chai
         .request(server)
-        .post("/user/signup")
+        .post(signup)
         .send({ email, password, source: token });
 
       // Verify
@@ -107,7 +115,7 @@ describe("--- TESTING SIGNUP ---", () => {
       // Exercise
       const res = await chai
         .request(server)
-        .post("/user/signup")
+        .post(signup)
         .send({ email, password, source: token });
 
       //Verify
@@ -116,7 +124,7 @@ describe("--- TESTING SIGNUP ---", () => {
       res.should.have.status(200);
 
       // Teardown
-      users.drop();
+      //users.drop();
     }).timeout(10000);
   });
 });

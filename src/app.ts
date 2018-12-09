@@ -95,12 +95,20 @@ const sessionStore = new MongoStore({ url: mongodbUri });
         secret,
         store,
     });
-    app.post("/user/*", session, getUser);
-    app.post("/user/signup", handleSignup);
-    app.post("/user/get_user", handleGetUser);
-    // app.post("/user/login", handleLogin);
-    app.post("/confirm_email", handleConfirmEmail);
+    app.post("/new-session/*", session);
+    app.post("/new-session/login", handleLogin);
+    app.post("/new-session/confirm_email", handleConfirmEmail);
+    app.post("/session/*", session, getUser);
+    app.post("/session/get_user", handleGetUser);
+    app.post("/signup", handleSignup);
     app.post("/stripe", handleStripeWebhook);
+    // app.post("/session/purchase-5pack", handlePurchase5Pack);
+    // app.post("/session/cancel-subscription", handleCancelSubscription);
+    // app.post("/session/update-source", handleUpdateSource);
+    // app.post("/session/update-shapes", handleUpdateShapes);
+    // app.post("/session/get-pdf", handleGetPdf);
+    // app.post("/resend-conf-email", handleResendConfEmail);
+    // app.post("/reset-password", handleResetPassword);
 
     expressServer = await app.listen(port);
     if (mochaCallback) {
@@ -109,20 +117,23 @@ const sessionStore = new MongoStore({ url: mongodbUri });
 })();
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
-    req.user = await users.findOne({ email: req.session.email });
+    const user = await users.findOne({ email: req.session.email });
+    console.log('getting');
+
+    if (!user) {
+        res.sendStatus(401);
+        return;
+    }
+    delete user.pwhash;
+    delete user.stripeId;
+    delete user.subscriptionId;
+    req.user = user;
     next();
 };
 
 const handleGetUser = async (req: Request, res: Response) => {
     res.send(req.user);
 };
-
-// app.post('/auth/cancel', (req: Request, res: Response) => {
-
-//  stripe.customers.del(customer.id).catch((err) => console.log('Customer deletion error:\n',
-//      (({ rawType, code, param, message, detail }) => ({ rawType, code, param, message, detail }))(err)));
-//  res.send();
-// });
 
 const signupSchema = joi.object().keys({
     email: joi
@@ -200,7 +211,6 @@ const handleSignup = async (req: Request, res: Response) => {
 
     // const mg_response = await mailgun.messages().send(data);
     // console.log(mg_response);
-    req.session.email = email;
     res.send();
 };
 
@@ -210,8 +220,7 @@ const confirmEmailSchema = joi.object().keys({
     key: joi.string().required(),
 });
 
-const handleConfirmEmail = async (req: Request, res: Response) => {
-    // Joi validation
+const handleConfirmEmail = async (req: Request, res: Response) => { // should key be encrypted in db?
     const validation = confirmEmailSchema.validate(req.body);
     if (validation.error) {
         handleError(req, res, validation.error.name, validation.error.message);
@@ -270,6 +279,7 @@ const handleConfirmEmail = async (req: Request, res: Response) => {
         handleError(req, null, err.type, err.message);
         return;
     }
+    req.session.email = email; 
     res.send();
 };
 
@@ -327,21 +337,44 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
     }
 };
 
+const loginSchema = joi.object().keys({
+    email: joi.string().required(),
+    password: joi.string().required(),
+});
+
 const handleLogin = async (req: Request, res: Response) => {
+    const validation = loginSchema.validate(req.body);
+    if (validation.error) {
+        handleError(req, res, validation.error.name, validation.error.message);
+        return;
+    }
+    const { email, password } = validation.value;
     const user = await users.findOne({ email: req.body.email });
+
+    if (!user) {
+        console.log(`LOGIN_FAILED: [${email}] not in database`);
+        handleError(req, res, "LoginError", "Login Error");
+        return;
+    }
+
+    if (user.confirmationKey) {
+        console.log(`LOGIN_FAILED: [${email}] has not been confirmed`);
+        handleError(req, res, "AccountNotConfirmed", "Account has not been confirmed");
+        return;
+    }
+
     const isValid = sodium.crypto_pwhash_str_verify(
         user.pwhash,
-        req.body.password,
+        password,
     );
-    const email = req.body.email;
-    if (isValid) {
-        console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
-        req.session.email = email;
-        res.send();
-    } else {
-        console.log(`LOGIN_FAILED: with username [${email}]`);
-        res.send({ error: "Login error" });
+
+    if (!isValid) {
+        console.log(`LOGIN_FAILED: bad password with username [${email}]`);
+        handleError(req, res, "LoginError", "Login Error");
     }
+    console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
+    req.session.email = email;
+    res.send();
 };
 
 const toBase64 = (bytes: Uint8Array) => {

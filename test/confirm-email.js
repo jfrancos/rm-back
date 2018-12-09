@@ -12,11 +12,12 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-
-
 // process.on('uncaughtException', (err) => {
 //   fs.writeSync(1, `Caught exception: ${err}\n`);
 // });
+
+const confirmEmail = "/new-session/confirm_email"
+const signup = "/signup"
 
 const server = app.app;
 
@@ -41,14 +42,13 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				await users.insertOne({
 					email: "justinfrancos@gmail.com",
 					confirmationKey: "confirmation_key",
-					signingKey: Buffer.from(sodium.crypto_auth_keygen())
 				});
 				const spy = sinon.spy(console, "log");
 
 				// Exercise
 				const res = await chai
 					.request(server)
-					.post("/confirm_email")
+					.post(confirmEmail)
 					.send({ key: "confirmation_key", email: "asdf@asdf.com" });
 
 				// Verify
@@ -73,14 +73,13 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				// Setup
 				await users.insertOne({
 					email: "justinfrancos@gmail.com"
-					//				signing_key: Buffer.from (sodium.crypto_auth_keygen())
 				});
 				const spy = sinon.spy(console, "log");
 
 				// Exercise
 				const res = await chai
 					.request(server)
-					.post("/confirm_email")
+					.post(confirmEmail)
 					.send({ key: "confirmation_key", email: "asdf@asdf.com" });
 
 				// Verify
@@ -106,7 +105,6 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				await users.insertOne({
 					email: "justinfrancos@gmail.com",
 					confirmationKey: "confirmation_key",
-					signingKey: Buffer.from(sodium.crypto_auth_keygen()),
 					rmMonthlyPrints: 0
 				});
 				const spy = sinon.spy(console, "log");
@@ -114,7 +112,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				// Exercise
 				const res = await chai
 					.request(server)
-					.post("/confirm_email")
+					.post(confirmEmail)
 					.send({ key: "confirmation_notkey", email });
 
 				// Verify
@@ -136,7 +134,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Setup
 			await chai
 				.request(server)
-				.post("/user/signup")
+				.post(signup)
 				.send({ email, password, source: token });
 			let user = await users.findOne({ email });
 			const key = user.confirmationKey;
@@ -145,7 +143,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Exercise
 			const res = await chai   /// had await but i think that causes issues
 				.request(server)
-				.post("/confirm_email")
+				.post(confirmEmail)
 				.send({ key, email });
 
 			console.log('confirmed')
@@ -194,7 +192,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// email = "asdf@asdf.com";
 			await chai
 				.request(server)
-				.post("/user/signup")
+				.post(signup)
 				.send({ email, password, source: "tok_chargeCustomerFail" });
 			let user = await users.findOne({ email });
 			const key = user.confirmationKey;
@@ -202,7 +200,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Exercise
 			const res = await chai
 				.request(server)
-				.post("/confirm_email")
+				.post(confirmEmail)
 				.send({ key, email });
 
 			// Verify
@@ -229,7 +227,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Exercise
 			const res = await chai
 				.request(server)
-				.post("/confirm_email")
+				.post(confirmEmail)
 				.send({ key: "confirmation_key", email });
 
 			// Verify
