@@ -54,7 +54,7 @@ describe("-- Get user --", () => {
 			});
 			await agent.post(login).send({ email, password });
 			
-			const res = await agent.post("/session/get_user").send({ extra: "extra"});
+			const res = await agent.post("/session/get_user").send({ extra: "extra" });
 			res.should.have.status(400);
 
 			users.drop();

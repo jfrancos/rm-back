@@ -138,7 +138,6 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				.send({ email, password, source: token });
 			let user = await users.findOne({ email });
 			const key = user.confirmationKey;
-			//const spy = sinon.spy(app.handleStripeWebhook);
 
 			// Exercise
 			const res = await chai   /// had await but i think that causes issues
