@@ -105,6 +105,7 @@ const sessionStore = new MongoStore({ url: mongodbUri });
     app.post("/new-session/confirm_email", handleConfirmEmail);
     app.post("/session/*", session, getUser);
     app.post("/session/get_user", handleGetUser);
+    app.post("/session/logout", handleLogout);
     app.post("/signup", handleSignup);
     app.post("/stripe", handleStripeWebhook);
     // app.post("/session/purchase-5pack", handlePurchase5Pack);
@@ -134,9 +135,28 @@ const getUser = async (req: Request, res: Response, next: NextFunction) => {
     next();
 };
 
+const handleLogout = async (req: Request, res: Response) => {
+    const validation = emptySchema.validate(req.body);
+    if (validation.error) {
+        handleError(req, res, validation.error.name, validation.error.message);
+        return;
+    }
+    req.session.destroy(() => {
+        res.send();
+    });
+};
+
 const handleGetUser = async (req: Request, res: Response) => {
+    const validation = emptySchema.validate(req.body);
+    if (validation.error) {
+        handleError(req, res, validation.error.name, validation.error.message);
+        return;
+    }
+    req.session.email = req.user.email;
     res.send(req.user);
 };
+
+const emptySchema = joi.object().keys({});
 
 const signupSchema = joi.object().keys({
     email: joi

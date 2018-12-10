@@ -9,11 +9,13 @@ const qs = require("querystring").stringify;
 const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
+const pwhash = "$argon2id$v=19$m=65536,t=4,p=1$VUnpyWRaGSkJRO5So4WfLg$SWBQIezrpoyFN6MNCytfge8enId3FcY/sm/H/Yd+g9U";
 
 const server = app.app;
 const twoWeeks = 1209600000;
 const signup = "/signup"
 const confirmEmail = "/new-session/confirm_email"
+const login = "/new-session/login"
 
 chai.use(chaiHttp);
 
@@ -28,50 +30,59 @@ before(() => (users = app.getUsers())); // This depends on mochaInit.js to work
 describe("-- Get user --", () => {
 	describe("- Get user -", () => {
 		it("Should return user", async () => {
-			// Setup
-			const clock = sinon.useFakeTimers((new Date()).getTime() - twoWeeks + 10000);
 			const agent = chai.request.agent(server);
-			let res = await agent
-				.post(signup)
-				.send({ email, password, source: token });
-
-			const user = await users.findOne({ email });
-			const key = user.confirmationKey;
-			res = await agent.post(confirmEmail).send({ key, email });
-
-			clock.restore();
-			res = await agent.post("/session/get_user");
+			await users.insertOne({
+				email,
+				pwhash,
+			});
+			await agent.post(login).send({ email, password });
+			
+			const res = await agent.post("/session/get_user");
 			res.should.have.status(200);
 
 			users.drop();
 			agent.close();
-		}).timeout(6000);
+		});
 	});
+
+	describe("- Get user with extra parameter -", () => {
+		it("Should return user", async () => {
+			const agent = chai.request.agent(server);
+			await users.insertOne({
+				email,
+				pwhash,
+			});
+			await agent.post(login).send({ email, password });
+			
+			const res = await agent.post("/session/get_user").send({ extra: "extra"});
+			res.should.have.status(400);
+
+			users.drop();
+			agent.close();
+		});
+	});
+
 
 	describe("- Get user after cookie expires -", () => {
 		it("Should not return user", async () => {
 			// Setup
 			const clock = sinon.useFakeTimers((new Date()).getTime() - twoWeeks - 1000);
 			const agent = chai.request.agent(server);
-			let res = await agent
-				.post(signup)
-				.send({ email, password, source: token });
-
-			const user = await users.findOne({ email });
-			const key = user.confirmationKey;
-			res = await agent.post(confirmEmail).send({ key, email });
-			console.log('here')
-
+			await users.insertOne({
+				email,
+				pwhash,
+			});
+			await agent.post(login).send({ email, password });
 			clock.restore();
-			console.log('there')
 
 			res = await agent.post("/session/get_user");
 			res.should.have.status(401);
 
 			users.drop();
 			agent.close();
-		}).timeout(6000);
+		});
 	});
+
 	describe("- Willy nilly call get_user -", () => {
 		it("Should not return user", async () => {
 			// Setup
@@ -79,10 +90,8 @@ describe("-- Get user --", () => {
 
 			res = await agent.post("/session/get_user");
 			res.should.have.status(401);
-			console.log("get here")
 
-			// users.drop();
 			agent.close();
-		}).timeout(6000);
+		});
 	});
 });
