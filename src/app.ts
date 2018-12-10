@@ -8,6 +8,7 @@ import expressSession from "express-session";
 import helmet from "helmet";
 import * as http from "http";
 import plainJoi from "joi";
+import joiZxcvbn from "joi-zxcvbn";
 import sodium from "libsodium-wrappers-sumo";
 import Mailgun from "mailgun-js";
 import mongodb from "mongodb";
@@ -15,8 +16,6 @@ import Stripe, { customers, ICard, IStripeError, subscriptions } from "stripe";
 import zxcvbn from "zxcvbn";
 
 // const fs = require ('fs');
-const joiZxcvbn = require("joi-zxcvbn");
-
 // var diff = require("deep-diff").diff;
 
 dotenv.config();
@@ -31,7 +30,7 @@ const MongoStore = connectMongo(expressSession);
 const joi = plainJoi.extend(joiZxcvbn());
 
 declare module "express" {
-    export interface Request {
+    interface Request {
         user?: any;
     }
 }
