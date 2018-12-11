@@ -1,5 +1,6 @@
 import assert from "assert";
 import bodyParser from "body-parser";
+import changeCase from "change-case";
 import "colors";
 import connectMongo from "connect-mongo";
 import dotenv from "dotenv";
@@ -100,17 +101,18 @@ const sessionStore = new MongoStore({ url: mongodbUri });
         secret,
         store,
     });
-    app.post("/new-session/*", session);
+    app.post("/new-session/*", session, validate);
     app.post("/new-session/login", handleLogin);
     app.post("/new-session/confirm_email", handleConfirmEmail);
-    app.post("/session/*", session, getUser);
+
+    app.post("/session/*", validate, session, getUser);
     app.post("/session/get_user", handleGetUser);
     app.post("/session/logout", handleLogout);
     app.post("/signup", handleSignup);
     app.post("/stripe", handleStripeWebhook);
-    // app.post("/session/purchase-5pack", handlePurchase5Pack);
-    // app.post("/session/cancel-subscription", handleCancelSubscription);
     // app.post("/session/update-source", handleUpdateSource);
+    app.post("/session/purchase_five_pack", handlePurchase5Pack);
+    // app.post("/session/cancel-subscription", handleCancelSubscription);
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
     // app.post("/resend-conf-email", handleResendConfEmail);
@@ -128,11 +130,55 @@ const getUser = async (req: Request, res: Response, next: NextFunction) => {
         res.sendStatus(401);
         return;
     }
-    delete user.pwhash;
-    delete user.stripeId;
-    delete user.subscriptionId;
     req.user = user;
     next();
+};
+
+// const validate = async (req: Request, res: Response, next: NextFunction) => {
+//     console.log(req.url);
+//     const functionName = "validate" + changeCase.pascalCase(req.url.split("/")[2]);
+//     console.log(functionName);
+//     next();
+// };
+
+// const handleUpdateSource = async (req: Request, res: Response) => {
+//     const validation = emptySchema.validate(req.body);
+//     if (validation.error) {
+//         handleError(req, res, validation.error.name, validation.error.message);
+//         return;
+//     }
+
+// }
+
+const handlePurchase5Pack = async (req: Request, res: Response) => {
+    const validation = emptySchema.validate(req.body);
+    if (validation.error) {
+        handleError(req, res, validation.error.name, validation.error.message);
+        return;
+    }
+    try {
+        await stripe.charges.create({
+            amount: 100,
+            currency: "usd",
+            customer: req.user.stripeId,
+        });
+    } catch (err) {
+        res.sendStatus(400);
+        handleError(req, null, err.type, err.message);
+        return;
+    }
+    const rmExtraPrints = req.user.rmExtraPrints + 5;
+    const rmShapeCapacity = req.user.rmShapeCapacity + 5;
+    await users.findOneAndUpdate(
+        { email: req.user.email },
+        {
+            $set: {
+                rmExtraPrints,
+                rmShapeCapacity,
+            },
+        },
+    );
+    res.send();
 };
 
 const handleLogout = async (req: Request, res: Response) => {
@@ -152,8 +198,12 @@ const handleGetUser = async (req: Request, res: Response) => {
         handleError(req, res, validation.error.name, validation.error.message);
         return;
     }
-    req.session.email = req.user.email;
-    res.send(req.user);
+    const user = req.user;
+    delete user.pwhash;
+    delete user.stripeId;
+    delete user.subscriptionId;
+    // req.session.email = req.user.email;
+    res.send(user);
 };
 
 const emptySchema = joi.object().keys({});
@@ -243,7 +293,8 @@ const confirmEmailSchema = joi.object().keys({
     key: joi.string().required(),
 });
 
-const handleConfirmEmail = async (req: Request, res: Response) => { // should key be encrypted in db?
+const handleConfirmEmail = async (req: Request, res: Response) => {
+    // should key be encrypted in db?
     const validation = confirmEmailSchema.validate(req.body);
     if (validation.error) {
         handleError(req, res, validation.error.name, validation.error.message);
@@ -298,7 +349,7 @@ const handleConfirmEmail = async (req: Request, res: Response) => { // should ke
             items: [{ plan }],
         });
     } catch (err) {
-        res.send();
+        res.send(); // ??
         handleError(req, null, err.type, err.message);
         return;
     }
@@ -330,7 +381,8 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
         ) {
             const subscription = stripeCustomer.subscriptions.data[0];
             const subscriptionId = subscription.id;
-            const subscriptionCurrentPeriodEnd = subscription.current_period_end;
+            const subscriptionCurrentPeriodEnd =
+                subscription.current_period_end;
             const subscriptionStatus = subscription.status;
             const rmShapeCapacity = user.rmShapeCapacity + 5;
             const rmMonthlyPrints = 5;
@@ -382,14 +434,16 @@ const handleLogin = async (req: Request, res: Response) => {
 
     if (user.confirmationKey) {
         console.log(`LOGIN_FAILED: [${email}] has not been confirmed`);
-        handleError(req, res, "AccountNotConfirmed", "Account has not been confirmed");
+        handleError(
+            req,
+            res,
+            "AccountNotConfirmed",
+            "Account has not been confirmed",
+        );
         return;
     }
 
-    const isValid = sodium.crypto_pwhash_str_verify(
-        user.pwhash,
-        password,
-    );
+    const isValid = sodium.crypto_pwhash_str_verify(user.pwhash, password);
 
     if (!isValid) {
         console.log(`LOGIN_FAILED: bad password with username [${email}]`);
