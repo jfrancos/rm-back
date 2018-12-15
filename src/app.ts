@@ -32,7 +32,8 @@ const joi = plainJoi.extend(joiZxcvbn());
 
 declare module "express" {
     interface Request {
-        user?: any;
+        user?: { [key: string]: any };
+        value?: { [key: string]: any };
     }
 }
 
@@ -62,7 +63,7 @@ const mongodbUri = process.env.MONGODB_URI;
 const mongoInit = async () => {
     mongoClient = await mongodb.connect(
         mongodbUri,
-        { useNewUrlParser: true },
+        { useNewUrlParser: true }
     );
     users = await mongoClient.db().collection("users");
     secrets = await mongoClient.db().collection("secrets");
@@ -74,7 +75,7 @@ const mongoInit = async () => {
     }
     if ((await secrets.countDocuments()) === 0) {
         await secrets.insertOne({
-            secret: toBase64(sodium.crypto_auth_keygen()),
+            secret: toBase64(sodium.crypto_auth_keygen())
         });
     }
     secret = (await secrets.findOne({})).secret;
@@ -99,16 +100,15 @@ const sessionStore = new MongoStore({ url: mongodbUri });
         resave,
         saveUninitialized,
         secret,
-        store,
+        store
     });
     app.post("/new-session/*", session, validate);
     app.post("/new-session/login", handleLogin);
     app.post("/new-session/confirm_email", handleConfirmEmail);
-
-    app.post("/session/*", validate, session, getUser);
+    app.post("/session/*", session, validate, getUser);
     app.post("/session/get_user", handleGetUser);
     app.post("/session/logout", handleLogout);
-    app.post("/signup", handleSignup);
+    app.post("/signup", validate, handleSignup);
     app.post("/stripe", handleStripeWebhook);
     // app.post("/session/update-source", handleUpdateSource);
     app.post("/session/purchase_five_pack", handlePurchase5Pack);
@@ -128,18 +128,24 @@ const getUser = async (req: Request, res: Response, next: NextFunction) => {
     const user = await users.findOne({ email: req.session.email });
     if (!user) {
         res.sendStatus(401);
-        return;
+        return; // how would we even get here?
     }
     req.user = user;
     next();
 };
 
-// const validate = async (req: Request, res: Response, next: NextFunction) => {
-//     console.log(req.url);
-//     const functionName = "validate" + changeCase.pascalCase(req.url.split("/")[2]);
-//     console.log(functionName);
-//     next();
-// };
+const validate = async (req: Request, res: Response, next: NextFunction) => {
+    const split = req.url.lastIndexOf("/");
+    const schemaString = changeCase.camelCase(req.url.slice(split)) + "Schema";
+    const schema = schemas[schemaString] || joi.object().keys({});
+    const validation = schema.validate(req.body);
+    if (validation.error) {
+        handleError(req, res, validation.error.name, validation.error.message);
+        return;
+    }
+    req.value = validation.value;
+    next();
+};
 
 // const handleUpdateSource = async (req: Request, res: Response) => {
 //     const validation = emptySchema.validate(req.body);
@@ -151,16 +157,11 @@ const getUser = async (req: Request, res: Response, next: NextFunction) => {
 // }
 
 const handlePurchase5Pack = async (req: Request, res: Response) => {
-    const validation = emptySchema.validate(req.body);
-    if (validation.error) {
-        handleError(req, res, validation.error.name, validation.error.message);
-        return;
-    }
     try {
         await stripe.charges.create({
             amount: 100,
             currency: "usd",
-            customer: req.user.stripeId,
+            customer: req.user.stripeId
         });
     } catch (err) {
         res.sendStatus(400);
@@ -174,39 +175,26 @@ const handlePurchase5Pack = async (req: Request, res: Response) => {
         {
             $set: {
                 rmExtraPrints,
-                rmShapeCapacity,
-            },
-        },
+                rmShapeCapacity
+            }
+        }
     );
     res.send();
 };
 
 const handleLogout = async (req: Request, res: Response) => {
-    const validation = emptySchema.validate(req.body);
-    if (validation.error) {
-        handleError(req, res, validation.error.name, validation.error.message);
-        return;
-    }
     req.session.destroy(() => {
         res.send();
     });
 };
 
 const handleGetUser = async (req: Request, res: Response) => {
-    const validation = emptySchema.validate(req.body);
-    if (validation.error) {
-        handleError(req, res, validation.error.name, validation.error.message);
-        return;
-    }
     const user = req.user;
     delete user.pwhash;
     delete user.stripeId;
     delete user.subscriptionId;
-    // req.session.email = req.user.email;
     res.send(user);
 };
-
-const emptySchema = joi.object().keys({});
 
 const signupSchema = joi.object().keys({
     email: joi
@@ -217,17 +205,11 @@ const signupSchema = joi.object().keys({
         .string()
         .zxcvbn(3)
         .required(),
-    source: joi.string().required(),
+    source: joi.string().required()
 });
 
 const handleSignup = async (req: Request, res: Response) => {
-    const validation = signupSchema.validate(req.body);
-    if (validation.error) {
-        handleError(req, res, validation.error.name, validation.error.message);
-        return;
-    }
-
-    const { email, password, source } = validation.value;
+    const { email, password, source } = req.value;
     const user = await users.findOne({ email });
     if (user) {
         handleError(req, res, "DuplicateUserError", "User already exists");
@@ -243,7 +225,7 @@ const handleSignup = async (req: Request, res: Response) => {
         return;
     }
     const card = customer.sources.data.find(
-        (customerSource) => customerSource.id === customer.default_source,
+        customerSource => customerSource.id === customer.default_source
     ) as ICard;
     logMessage(req, `Successful signup with username [${email}]`);
     const confirmationKey = toBase64(sodium.crypto_auth_keygen());
@@ -251,7 +233,7 @@ const handleSignup = async (req: Request, res: Response) => {
         const pwhash = sodium.crypto_pwhash_str(
             req.body.password,
             sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
-            sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+            sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
         await users.insertOne({
             cardBrand: card.brand,
@@ -266,7 +248,7 @@ const handleSignup = async (req: Request, res: Response) => {
             rmShapeCapacity: 0,
             rmShapes: {},
             stripeId: customer.id,
-            subscriptionCurrentPeriodEnd: 0,
+            subscriptionCurrentPeriodEnd: 0
             //  stripe_cust: customer,
         });
     } catch (err) {
@@ -278,7 +260,7 @@ const handleSignup = async (req: Request, res: Response) => {
         from: "RhythMandala <signups@rhythmandala.com>",
         to: email,
         subject: "Follow Link to Complete Signup",
-        html: `${emailBody1}email=${email}&key=${confirmationKey}${emailBody2}`,
+        html: `${emailBody1}email=${email}&key=${confirmationKey}${emailBody2}`
     };
     // tslint:enable:object-literal-sort-keys
 
@@ -288,27 +270,19 @@ const handleSignup = async (req: Request, res: Response) => {
 };
 
 const confirmEmailSchema = joi.object().keys({
-    // how to make sure only these two are included
     email: joi.string().required(),
-    key: joi.string().required(),
+    key: joi.string().required()
 });
 
 const handleConfirmEmail = async (req: Request, res: Response) => {
-    // should key be encrypted in db?
-    const validation = confirmEmailSchema.validate(req.body);
-    if (validation.error) {
-        handleError(req, res, validation.error.name, validation.error.message);
-        return;
-    }
-    const { email, key } = validation.value;
-
+    const { email, key } = req.value;
     const handleConfError = () => {
         // don't let on if an email exists
         handleError(
             req,
             res,
             "EmailConfirmationError",
-            `There was an error confirming ${email}`,
+            `There was an error confirming ${email}`
         );
     };
 
@@ -337,7 +311,7 @@ const handleConfirmEmail = async (req: Request, res: Response) => {
     // Update DB
     await users.findOneAndUpdate(
         { email },
-        { $unset: { confirmationKey: "" } },
+        { $unset: { confirmationKey: "" } }
     );
     console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
 
@@ -346,7 +320,7 @@ const handleConfirmEmail = async (req: Request, res: Response) => {
     try {
         await stripe.subscriptions.create({
             customer: user.stripeId,
-            items: [{ plan }],
+            items: [{ plan }]
         });
     } catch (err) {
         res.send(); // ??
@@ -394,9 +368,9 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
                         rmShapeCapacity,
                         subscriptionCurrentPeriodEnd,
                         subscriptionId,
-                        subscriptionStatus,
-                    },
-                },
+                        subscriptionStatus
+                    }
+                }
             );
         }
         // await users.findOneAndUpdate(
@@ -412,18 +386,15 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
     }
 };
 
+// let loginSchema: plainJoi.JoiObject;
+
 const loginSchema = joi.object().keys({
     email: joi.string().required(),
-    password: joi.string().required(),
+    password: joi.string().required()
 });
 
 const handleLogin = async (req: Request, res: Response) => {
-    const validation = loginSchema.validate(req.body);
-    if (validation.error) {
-        handleError(req, res, validation.error.name, validation.error.message);
-        return;
-    }
-    const { email, password } = validation.value;
+    const { email, password } = req.value;
     const user = await users.findOne({ email: req.body.email });
 
     if (!user) {
@@ -438,7 +409,7 @@ const handleLogin = async (req: Request, res: Response) => {
             req,
             res,
             "AccountNotConfirmed",
-            "Account has not been confirmed",
+            "Account has not been confirmed"
         );
         return;
     }
@@ -454,6 +425,12 @@ const handleLogin = async (req: Request, res: Response) => {
     res.send();
 };
 
+const schemas: { [key: string]: plainJoi.Schema } = {
+    signupSchema,
+    loginSchema,
+    confirmEmailSchema
+};
+
 const toBase64 = (bytes: Uint8Array) => {
     return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING);
 };
@@ -462,7 +439,7 @@ const handleError = (
     req: Request,
     res: Response,
     code: string,
-    message: string,
+    message: string
 ) => {
     const path = req.url.toUpperCase();
     logMessage(req, `${code}: ${message}`);
@@ -508,5 +485,5 @@ module.exports = {
     handleError,
     handleStripeWebhook,
     setMochaCallback,
-    users,
+    users
 };

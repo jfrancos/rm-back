@@ -19,9 +19,9 @@ const login = "/new-session/login"
 
 chai.use(chaiHttp);
 
-process.on("uncaughtException", err => {
-	fs.writeSync(1, `Caught exception: ${err}\n`);
-});
+// process.on("uncaughtException", err => {
+// 	fs.writeSync(1, `Caught exception: ${err}\n`);
+// });
 
 let users;
 
