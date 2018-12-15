@@ -30,13 +30,6 @@ const MongoStore = connectMongo(expressSession);
 
 const joi = plainJoi.extend(joiZxcvbn());
 
-declare module "express" {
-    interface Request {
-        user?: { [key: string]: any };
-        value?: { [key: string]: any };
-    }
-}
-
 // Mailgun Init
 const domain = "mg.rhythmandala.com";
 const apiKey = process.env.MG_KEY;

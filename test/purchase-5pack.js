@@ -84,19 +84,4 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			agent.close();
 		}).timeout(30000);
 	});
-
-	// describe("timing test", () => {
-	// 	it ('asdf', async () => {
-	// 		await new Promise(resolve =>
-	// 			setTimeout(resolve, 3000)
-	// 		);
-	// 		after(async () => {
-	// 			await new Promise(resolve =>
-	// 				setTimeout(resolve, 2000)
-	// 			);
-	// 		});
-	// 	}).timeout(4000);
-	// })
-
-
 });
