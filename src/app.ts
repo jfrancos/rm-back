@@ -1,20 +1,17 @@
 import assert from "assert";
 import bodyParser from "body-parser";
-import changeCase from "change-case";
 import "colors";
 import connectMongo from "connect-mongo";
 import dotenv from "dotenv";
 import express, { Application, NextFunction, Request, Response } from "express";
 import expressSession from "express-session";
 import helmet from "helmet";
-import * as http from "http";
-import plainJoi from "joi";
-import joiZxcvbn from "joi-zxcvbn";
+import http from "http";
 import sodium from "libsodium-wrappers-sumo";
 import Mailgun from "mailgun-js";
 import mongodb from "mongodb";
 import Stripe, { customers, ICard, IStripeError, subscriptions } from "stripe";
-import zxcvbn from "zxcvbn";
+import validate from "./validate";
 
 // const fs = require ('fs');
 // var diff = require("deep-diff").diff;
@@ -27,8 +24,6 @@ const MongoStore = connectMongo(expressSession);
 // process.on('uncaughtException', (err) => {
 //   fs.writeSync(1, `Caught exception: ${err}\n`);
 // });
-
-const joi = plainJoi.extend(joiZxcvbn());
 
 // Mailgun Init
 const domain = "mg.rhythmandala.com";
@@ -103,9 +98,10 @@ const sessionStore = new MongoStore({ url: mongodbUri });
     app.post("/session/logout", handleLogout);
     app.post("/signup", validate, handleSignup);
     app.post("/stripe", handleStripeWebhook);
-    // app.post("/session/update-source", handleUpdateSource);
-    app.post("/session/purchase_five_pack", handlePurchase5Pack);
-    // app.post("/session/cancel-subscription", handleCancelSubscription);
+    app.post("/session/update-source", handleUpdateSource); // Interacts with Stripe
+    app.post("/session/purchase_five_pack", handlePurchase5Pack); // Interacts with Stripe
+    // app.post("/session/cancel-subscription", handleCancelSubscription);    // Interacts with Stripe
+
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
     // app.post("/resend-conf-email", handleResendConfEmail);
@@ -127,27 +123,21 @@ const getUser = async (req: Request, res: Response, next: NextFunction) => {
     next();
 };
 
-const validate = async (req: Request, res: Response, next: NextFunction) => {
-    const split = req.url.lastIndexOf("/");
-    const schemaString = changeCase.camelCase(req.url.slice(split)) + "Schema";
-    const schema = schemas[schemaString] || joi.object().keys({});
-    const validation = schema.validate(req.body);
-    if (validation.error) {
-        handleError(req, res, validation.error.name, validation.error.message);
+const handleUpdateSource = async (req: Request, res: Response) => {
+    const stripeID = req.user.stripeID;
+    const { source } = req.value;
+    let customer: Customer;
+    try {
+        logMessage(req, "Awaiting customer update");
+        customer = await stripe.customers.update(stripeID, { source });
+    } catch (err) {
+        handleError(req, res, err.type, err.message);
         return;
     }
-    req.value = validation.value;
-    next();
+    const card = customer.sources.data.find(
+        customerSource => customerSource.id === customer.default_source
+    ) as ICard;
 };
-
-// const handleUpdateSource = async (req: Request, res: Response) => {
-//     const validation = emptySchema.validate(req.body);
-//     if (validation.error) {
-//         handleError(req, res, validation.error.name, validation.error.message);
-//         return;
-//     }
-
-// }
 
 const handlePurchase5Pack = async (req: Request, res: Response) => {
     try {
@@ -189,17 +179,11 @@ const handleGetUser = async (req: Request, res: Response) => {
     res.send(user);
 };
 
-const signupSchema = joi.object().keys({
-    email: joi
-        .string()
-        .email()
-        .required(),
-    password: joi
-        .string()
-        .zxcvbn(3)
-        .required(),
-    source: joi.string().required()
-});
+const updateCard = (customer: Customer) => {
+    const card = customer.sources.data.find(
+        customerSource => customerSource.id === customer.default_source
+    ) as ICard;
+};
 
 const handleSignup = async (req: Request, res: Response) => {
     const { email, password, source } = req.value;
@@ -213,6 +197,7 @@ const handleSignup = async (req: Request, res: Response) => {
     try {
         logMessage(req, "Awaiting customer creation");
         customer = await stripe.customers.create({ source, email });
+        // console.log(customer);
     } catch (err) {
         handleError(req, res, err.type, err.message);
         return;
@@ -229,10 +214,10 @@ const handleSignup = async (req: Request, res: Response) => {
             sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
         await users.insertOne({
-            cardBrand: card.brand,
-            cardExpMonth: card.exp_month,
-            cardExpYear: card.exp_year,
-            cardLast4: card.last4,
+            cardBrand: card.brand, // From cust data
+            cardExpMonth: card.exp_month, // From cust data
+            cardExpYear: card.exp_year, // From cust data
+            cardLast4: card.last4, // From cust data
             confirmationKey,
             email,
             pwhash,
@@ -240,8 +225,10 @@ const handleSignup = async (req: Request, res: Response) => {
             rmMonthlyPrints: 0,
             rmShapeCapacity: 0,
             rmShapes: {},
+            sourceId: customer.default_source, // From cust data
             stripeId: customer.id,
-            subscriptionCurrentPeriodEnd: 0
+            // stripeStatus: customer.subscriptions[0].status,                        // From cust data
+            subscriptionCurrentPeriodEnd: 0 // From cust data
             //  stripe_cust: customer,
         });
     } catch (err) {
@@ -261,11 +248,6 @@ const handleSignup = async (req: Request, res: Response) => {
     // console.log(mg_response);
     res.send();
 };
-
-const confirmEmailSchema = joi.object().keys({
-    email: joi.string().required(),
-    key: joi.string().required()
-});
 
 const handleConfirmEmail = async (req: Request, res: Response) => {
     const { email, key } = req.value;
@@ -379,13 +361,6 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
     }
 };
 
-// let loginSchema: plainJoi.JoiObject;
-
-const loginSchema = joi.object().keys({
-    email: joi.string().required(),
-    password: joi.string().required()
-});
-
 const handleLogin = async (req: Request, res: Response) => {
     const { email, password } = req.value;
     const user = await users.findOne({ email: req.body.email });
@@ -416,12 +391,6 @@ const handleLogin = async (req: Request, res: Response) => {
     console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
     req.session.email = email;
     res.send();
-};
-
-const schemas: { [key: string]: plainJoi.Schema } = {
-    signupSchema,
-    loginSchema,
-    confirmEmailSchema
 };
 
 const toBase64 = (bytes: Uint8Array) => {
@@ -480,3 +449,5 @@ module.exports = {
     setMochaCallback,
     users
 };
+
+export default module.exports;

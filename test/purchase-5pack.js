@@ -24,7 +24,7 @@ const server = app.app;
 chai.use(chaiHttp);
 chai.use(sinonChai);
 
-let users, ngrokUrl;
+let users;
 before(async () => {
 	await sodium.ready;
 	users = app.getUsers();
@@ -36,40 +36,39 @@ const handleError = res =>
 	console.log(`MOCHA/CHAI: ${res.body.code}: ${res.body.message}`);
 
 describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
+	before(async () => {
+		await chai.request(server)
+			.post(signup)
+			.send({ email, password, source: token });
+		let user = await users.findOne({ email });
+		const key = user.confirmationKey;
+		let res = await chai.request(server)
+			.post(confirmEmail)
+			.send({ key, email });
+		console.log('confirmed')
+		user = await users.findOne({ email });
+		if (user.rmMonthlyPrints != 5) {
+			// Wait for Stripe Webhooks to arrive
+			console.log('Awaiting subscription via webhook')
+			await new Promise(resolve => {
+				const stream = users.watch()
+				stream.on('change', async data => {
+					user = await users.findOne({ email });
+		 			if (user.rmMonthlyPrints === 5) {
+						resolve();
+						stream.close(); // does this unwatch the stream??
+					}
+				});
+			});
+		}
+	});
 	describe("-- Buying a 5 pack --", () => {
 		it("Should return 200", async () => {
 			// Setup
 			const agent = chai.request.agent(server);
-			await agent
-				.post(signup)
-				.send({ email, password, source: token });
-			let user = await users.findOne({ email });
-			const key = user.confirmationKey;
-
-			// Exercise
-			let res = await agent   /// had await but i think that causes issues
-				.post(confirmEmail)
-				.send({ key, email });
-
-			console.log('confirmed')
-			user = await users.findOne({ email });
-			if (user.rmMonthlyPrints != 5) {
-				// Wait for Stripe Webhooks to arrive
-				console.log('Awaiting subscription via webhook')
-				await new Promise(resolve => {
-					const stream = users.watch()
-					stream.on('change', async data => {
-						user = await users.findOne({ email });
-			 			if (user.rmMonthlyPrints === 5) {
-							resolve();
-							stream.close(); // does this unwatch the stream??
-						}
-					});
-				});
-			}
-
+			let res = await agent.post("/new-session/login").send({ email, password });
 			await agent.post("/session/purchase_five_pack");
-			await agent.post("/session/purchase_five_pack");
+			res = await agent.post("/session/purchase_five_pack");
 
 			user = await users.findOne({ email });
 
@@ -80,8 +79,31 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			user.should.have.property("rmShapeCapacity", 15);
 
 			// Teardown
-			await users.drop();
 			agent.close();
 		}).timeout(30000);
 	});
+	// describe("-- Changing source --", () => {
+	// 	it("Should return 200", async () => {
+	// 		// Setup
+	// 		const agent = chai.request.agent(server);
+	// 		await agent.post("/new-session/login").send({ email, password });
+	// 		user = await users.findOne({ email });
+	// 		console.log(user)
+	// 		const res = await agent.post("/session/update-source").send({ source: "tok_visa" });
+	// 		user = await users.findOne({ email });
+	// 		console.log(user)
+
+	// 		// Verify
+	// 		res.should.have.status(200);
+	// 		// user.should.have.property("rmMonthlyPrints", 5);
+	// 		// user.should.have.property("rmExtraPrints", 5);
+	// 		// user.should.have.property("rmShapeCapacity", 10);
+
+	// 		// Teardown
+	// 		agent.close();
+	// 	}).timeout(30000);
+	// });
+	after(async () => {
+		await users.drop();
+	})
 });

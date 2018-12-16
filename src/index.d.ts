@@ -1,10 +1,8 @@
-declare module "joi-zxcvbn" {
-    export default function joiZxcvbn(): () => {};
-}
+import express from "express";
 
-declare namespace Express {
-    export interface Request {
-        user?: { [key: string]: any };
-        value?: { [key: string]: any };
-    }
+declare module "express" {
+	export interface Request {
+		user?: { [key: string]: any };
+		value?: { [key: string]: any };
+	}
 }
