@@ -53,8 +53,8 @@ const mongoInit = async () => {
         mongodbUri,
         { useNewUrlParser: true }
     );
-    users = await mongoClient.db().collection("users");
-    secrets = await mongoClient.db().collection("secrets");
+    users = mongoClient.db().collection("users");
+    secrets = mongoClient.db().collection("secrets");
     try {
         console.log("creating index");
         await users.createIndex({ email: 1 }, { unique: true });
@@ -96,18 +96,18 @@ const sessionStore = new MongoStore({ url: mongodbUri });
     app.post("/session/*", session, validate, getUser);
     app.post("/session/get_user", handleGetUser);
     app.post("/session/logout", handleLogout);
-    app.post("/signup", validate, handleSignup);
-    app.post("/stripe", handleStripeWebhook);
     app.post("/session/update-source", handleUpdateSource); // Interacts with Stripe
     app.post("/session/purchase_five_pack", handlePurchase5Pack); // Interacts with Stripe
-    // app.post("/session/cancel-subscription", handleCancelSubscription);    // Interacts with Stripe
-
-    // app.post("/session/update-shapes", handleUpdateShapes);
-    // app.post("/session/get-pdf", handleGetPdf);
+    app.post("/session/cancel-subscription", handleCancelSubscription);    // Interacts with Stripe
+    app.post("/signup", validate, handleSignup);
+    app.post("/stripe", handleStripeWebhook);
     // app.post("/resend-conf-email", handleResendConfEmail);
     // app.post("/reset-password", handleResetPassword);
+    // app.post("/session/update-shapes", handleUpdateShapes);
+    // app.post("/session/get-pdf", handleGetPdf);
 
-    expressServer = await app.listen(port);
+
+    expressServer = app.listen(port);
     if (mochaCallback) {
         mochaCallback();
     }
@@ -124,20 +124,39 @@ const getUser = async (req: Request, res: Response, next: NextFunction) => {
 };
 
 const handleUpdateSource = async (req: Request, res: Response) => {
-    const stripeID = req.user.stripeID;
+    const stripeId = req.user.stripeId;
     const { source } = req.value;
     let customer: Customer;
     try {
         logMessage(req, "Awaiting customer update");
-        customer = await stripe.customers.update(stripeID, { source });
+        customer = await stripe.customers.update(stripeId, { source });
     } catch (err) {
         handleError(req, res, err.type, err.message);
         return;
     }
-    const card = customer.sources.data.find(
-        customerSource => customerSource.id === customer.default_source
-    ) as ICard;
+    await users.findOneAndUpdate(
+        { email: req.user.email },
+        {
+            $set: getCardData(customer)
+        }
+    );
+    res.send();
 };
+
+const handleCancelSubscription = async (req: Request, res: Response) => {
+    let customer: Customer;
+    try {
+        await stripe.subscriptions.update(req.user.subscriptionId, { cancel_at_period_end: true });
+        await stripe.customers.deleteSource(req.user.stripeId, req.user.sourceId);
+        customer = await stripe.customers.retrieve(req.user.stripeId);
+    } catch (err) {
+        res.sendStatus(400);
+        handleError(req, null, err.type, err.message);
+        return;
+    }
+    console.log(customer)
+    res.send();
+}
 
 const handlePurchase5Pack = async (req: Request, res: Response) => {
     try {
@@ -179,11 +198,26 @@ const handleGetUser = async (req: Request, res: Response) => {
     res.send(user);
 };
 
-const updateCard = (customer: Customer) => {
+const getCardData = (customer: Customer) => {
+    const sourceId = customer.default_source;
     const card = customer.sources.data.find(
-        customerSource => customerSource.id === customer.default_source
+        customerSource => customerSource.id === sourceId
     ) as ICard;
+    const cardBrand = card.brand;
+    const cardExpMonth = card.exp_month;
+    const cardExpYear = card.exp_year;
+    const cardLast4 = card.last4;
+    return { sourceId, cardBrand, cardExpMonth, cardExpYear, cardLast4 };
 };
+
+// const processCustomer = (customer: Customer, user: any) => {
+    // Check for:
+    //    new card info
+    //    new period_end
+    //    new status
+    //    cancel_at_period_end
+// }
+
 
 const handleSignup = async (req: Request, res: Response) => {
     const { email, password, source } = req.value;
@@ -214,10 +248,7 @@ const handleSignup = async (req: Request, res: Response) => {
             sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
         await users.insertOne({
-            cardBrand: card.brand, // From cust data
-            cardExpMonth: card.exp_month, // From cust data
-            cardExpYear: card.exp_year, // From cust data
-            cardLast4: card.last4, // From cust data
+            ...getCardData(customer),
             confirmationKey,
             email,
             pwhash,
@@ -225,7 +256,6 @@ const handleSignup = async (req: Request, res: Response) => {
             rmMonthlyPrints: 0,
             rmShapeCapacity: 0,
             rmShapes: {},
-            sourceId: customer.default_source, // From cust data
             stripeId: customer.id,
             // stripeStatus: customer.subscriptions[0].status,                        // From cust data
             subscriptionCurrentPeriodEnd: 0 // From cust data
@@ -317,7 +347,7 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
 
     try {
         stripeCustomer = await stripe.customers.retrieve(customerId);
-        // console.log(JSON.stringify(stripe_user, null, 4));
+        console.log(JSON.stringify(stripeCustomer, null, 4));
         user = await users.findOne({ stripeId: customerId });
         if (!user) {
             return;
@@ -403,7 +433,7 @@ const handleError = (
     code: string,
     message: string
 ) => {
-    const path = req.url.toUpperCase();
+    // const path = req.url.toUpperCase();
     logMessage(req, `${code}: ${message}`);
     if (res) {
         res.status(400).json({ code, message });
@@ -424,7 +454,7 @@ function distillError(error: any) {
 }
 
 const close = async () => {
-    await expressServer.close();
+    expressServer.close();
     await mongoClient.close();
     await (sessionStore as any).close(); // submitted pull request to DefinitelyTyped
     // await sessionStore.close();
