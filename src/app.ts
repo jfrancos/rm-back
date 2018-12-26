@@ -63,7 +63,7 @@ const mongoInit = async () => {
     }
     if ((await secrets.countDocuments()) === 0) {
         await secrets.insertOne({
-         //   secret: toBase64(sodium.crypto_auth_keygen())
+            secret: toBase64(sodium.crypto_auth_keygen())
         });
     }
     secret = (await secrets.findOne({})).secret;
