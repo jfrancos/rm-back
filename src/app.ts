@@ -3,27 +3,25 @@ import bodyParser from "body-parser";
 import "colors";
 import connectMongo from "connect-mongo";
 import dotenv from "dotenv";
+import errorhandler from "errorhandler";
 import express, { Application, NextFunction, Request, Response } from "express";
 import expressSession from "express-session";
 import helmet from "helmet";
 import http from "http";
 import sodium from "libsodium-wrappers-sumo";
+import _ from "lodash";
 import Mailgun from "mailgun-js";
 import mongodb from "mongodb";
-import Stripe, { customers, ICard, IStripeError, subscriptions } from "stripe";
+import Stripe, { ICard, IStripeError } from "stripe";
 import validate from "./validate";
 
 // const fs = require ('fs');
 // var diff = require("deep-diff").diff;
 
 dotenv.config();
-type Customer = customers.ICustomer;
-type Subscription = subscriptions.ISubscription;
+type Customer = Stripe.customers.ICustomer;
+type Subscription = Stripe.subscriptions.ISubscription;
 const MongoStore = connectMongo(expressSession);
-
-// process.on('uncaughtException', (err) => {
-//   fs.writeSync(1, `Caught exception: ${err}\n`);
-// });
 
 // Mailgun Init
 const domain = "mg.rhythmandala.com";
@@ -47,6 +45,7 @@ let secret: string;
 let mongoClient: mongodb.MongoClient;
 let users: mongodb.Collection;
 let secrets: mongodb.Collection;
+let shapes: mongodb.Collection;
 const mongodbUri = process.env.MONGODB_URI;
 const mongoInit = async () => {
     mongoClient = await mongodb.connect(
@@ -55,6 +54,7 @@ const mongoInit = async () => {
     );
     users = mongoClient.db().collection("users");
     secrets = mongoClient.db().collection("secrets");
+    shapes = mongoClient.db().collection("shapes");
     try {
         console.log("creating index");
         await users.createIndex({ email: 1 }, { unique: true });
@@ -63,7 +63,7 @@ const mongoInit = async () => {
     }
     if ((await secrets.countDocuments()) === 0) {
         await secrets.insertOne({
-            secret: toBase64(sodium.crypto_auth_keygen())
+         //   secret: toBase64(sodium.crypto_auth_keygen())
         });
     }
     secret = (await secrets.findOne({})).secret;
@@ -72,14 +72,21 @@ const mongoInit = async () => {
 // Express Init
 const app = express();
 const port = process.env.PORT;
+console.log(port)
 let expressServer: http.Server;
 app.use(helmet());
 app.use(bodyParser.json());
+
 const sessionStore = new MongoStore({ url: mongodbUri });
 
-// Start DB then Express then Mocha callback
+
+
+// // Start DB then Express then Mocha callback
 (async () => {
+    process.removeAllListeners('uncaughtException'); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
+    process.removeAllListeners('unhandledRejection'); 
     await sodium.ready; // mongoInit depends on sodium being ready
+
     await mongoInit();
     const resave = false;
     const saveUninitialized = false;
@@ -92,29 +99,43 @@ const sessionStore = new MongoStore({ url: mongodbUri });
     });
     app.post("/new-session/*", session, validate);
     app.post("/new-session/login", handleLogin);
-    app.post("/new-session/confirm_email", handleConfirmEmail);
+    app.post("/new-session/confirm_email", handleConfirmEmail, getUser);            // Interacts with Stripe -- returns subscription
     app.post("/session/*", session, validate, getUser);
     app.post("/session/get_user", handleGetUser);
     app.post("/session/logout", handleLogout);
-    app.post("/session/update-source", handleUpdateSource); // Interacts with Stripe
-    app.post("/session/purchase_five_pack", handlePurchase5Pack); // Interacts with Stripe
-    app.post("/session/cancel-subscription", handleCancelSubscription);    // Interacts with Stripe
-    app.post("/signup", validate, handleSignup);
-    app.post("/stripe", handleStripeWebhook);
+    app.post("/session/update-source", handleUpdateSource);                // Interacts with Stripe -- returns customer
+    app.post("/session/purchase_five_pack", handlePurchase5Pack);          // Interacts with Stripe -- returns charge object
+    app.post("/session/cancel-subscription", handleCancelSubscription);    // Interacts with Stripe -- returns subscription
+    app.post("/signup", session, validate, handleSignup, getUser);         // Interacts with Stripe -- returns customer // do i really want session here?
+    app.post("/stripe", handleStripeWebhook);                              // returns customer
+    app.post("/*", updateUser);
     // app.post("/resend-conf-email", handleResendConfEmail);
     // app.post("/reset-password", handleResetPassword);
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
 
-
-    expressServer = app.listen(port);
+    try {
+        expressServer = app.listen(port);
+    } catch (err) {
+        console.log(err);
+    }
     if (mochaCallback) {
         mochaCallback();
     }
 })();
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
+    console.log("entering getUser")
+    // let user;
     const user = await users.findOne({ email: req.session.email });
+
+    // try {
+    //     const email = req.session && req.session.email;
+    //     // const stripeId = req.customer && req.customer.id;
+    //     // user = await users.findOne({ $or: [{ email }, { stripeId }] });
+    // } catch (err) {
+    //     console.log(err);
+    // }
     if (!user) {
         res.sendStatus(401);
         return; // how would we even get here?
@@ -126,35 +147,69 @@ const getUser = async (req: Request, res: Response, next: NextFunction) => {
 const handleUpdateSource = async (req: Request, res: Response) => {
     const stripeId = req.user.stripeId;
     const { source } = req.value;
-    let customer: Customer;
     try {
         logMessage(req, "Awaiting customer update");
-        customer = await stripe.customers.update(stripeId, { source });
+        req.customer = await stripe.customers.update(stripeId, { source });
     } catch (err) {
         handleError(req, res, err.type, err.message);
         return;
     }
-    await users.findOneAndUpdate(
-        { email: req.user.email },
-        {
-            $set: getCardData(customer)
-        }
-    );
     res.send();
 };
 
-const handleCancelSubscription = async (req: Request, res: Response) => {
-    let customer: Customer;
+const handleCancelSubscription = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        await stripe.subscriptions.update(req.user.subscriptionId, { cancel_at_period_end: true });
-        await stripe.customers.deleteSource(req.user.stripeId, req.user.sourceId);
-        customer = await stripe.customers.retrieve(req.user.stripeId);
+        req.subscription = await stripe.subscriptions.update(req.user.subscription.id, { cancel_at_period_end: true });
+        // customer = await stripe.customers.deleteSource(req.user.stripeId, req.user.sourceId); // Is this necessary?
+        // customer = await stripe.customers.retrieve(req.user.stripeId);
     } catch (err) {
         res.sendStatus(400);
         handleError(req, null, err.type, err.message);
         return;
     }
-    console.log(customer)
+    // console.log(customer)
+    next();
+}
+
+const updateUser = async (req: Request, res: Response) => {
+    console.log("updating use")
+    const customer: Customer = req.customer;
+    let subscription = req.subscription || customer.subscriptions.data[0];
+    const set: { [key: string]: any } = {};
+
+    if (subscription) {
+        const keys = [ 'current_period_end', 'id', 'status', 'cancel_at_period_end' ];
+        subscription = _.pick(subscription, keys);
+
+        if (!_.isEqual(subscription, req.user.subscription)) {
+            set.subscription = subscription;
+            if (subscription.current_period_end > req.user.subscription.current_period_end) {
+                set.rmShapeCapacity = req.user.rmShapeCapacity + 5;
+                set.rmMonthlyPrints = 5;
+            }
+        }
+    }
+    if (customer && customer.default_source) {
+        const sourceId = customer.default_source;
+        let source: { [key: string]: any } = customer.sources.data.find(
+            customerSource => customerSource.id === sourceId
+        );
+        const keys = ['last4', 'brand', 'exp_month', 'exp_year', 'id'];
+        source = _.pick(source, keys);
+        if (!_.isEqual(source, req.user.source)) {
+            set.source = source;
+        }
+    }
+    if (Object.keys(set).length > 0) {
+        try {
+            await users.findOneAndUpdate(
+                { stripeId: req.user.stripeId },
+                { $set: set }
+            );
+        } catch (err) {
+            console.log(err);
+        }
+    }
     res.send();
 }
 
@@ -194,32 +249,12 @@ const handleGetUser = async (req: Request, res: Response) => {
     const user = req.user;
     delete user.pwhash;
     delete user.stripeId;
-    delete user.subscriptionId;
+    // delete user.subscriptionId;
     res.send(user);
 };
 
-const getCardData = (customer: Customer) => {
-    const sourceId = customer.default_source;
-    const card = customer.sources.data.find(
-        customerSource => customerSource.id === sourceId
-    ) as ICard;
-    const cardBrand = card.brand;
-    const cardExpMonth = card.exp_month;
-    const cardExpYear = card.exp_year;
-    const cardLast4 = card.last4;
-    return { sourceId, cardBrand, cardExpMonth, cardExpYear, cardLast4 };
-};
-
-// const processCustomer = (customer: Customer, user: any) => {
-    // Check for:
-    //    new card info
-    //    new period_end
-    //    new status
-    //    cancel_at_period_end
-// }
-
-
-const handleSignup = async (req: Request, res: Response) => {
+const handleSignup = async (req: Request, res: Response, next: NextFunction) => {
+    console.log("ENTERING SETUP")
     const { email, password, source } = req.value;
     const user = await users.findOne({ email });
     if (user) {
@@ -227,18 +262,15 @@ const handleSignup = async (req: Request, res: Response) => {
         return;
     }
 
-    let customer: Customer;
+//    let customer: Customer;
     try {
         logMessage(req, "Awaiting customer creation");
-        customer = await stripe.customers.create({ source, email });
+        req.customer = await stripe.customers.create({ source, email });
         // console.log(customer);
     } catch (err) {
         handleError(req, res, err.type, err.message);
         return;
     }
-    const card = customer.sources.data.find(
-        customerSource => customerSource.id === customer.default_source
-    ) as ICard;
     logMessage(req, `Successful signup with username [${email}]`);
     const confirmationKey = toBase64(sodium.crypto_auth_keygen());
     try {
@@ -248,7 +280,6 @@ const handleSignup = async (req: Request, res: Response) => {
             sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
         await users.insertOne({
-            ...getCardData(customer),
             confirmationKey,
             email,
             pwhash,
@@ -256,10 +287,9 @@ const handleSignup = async (req: Request, res: Response) => {
             rmMonthlyPrints: 0,
             rmShapeCapacity: 0,
             rmShapes: {},
-            stripeId: customer.id,
-            // stripeStatus: customer.subscriptions[0].status,                        // From cust data
-            subscriptionCurrentPeriodEnd: 0 // From cust data
-            //  stripe_cust: customer,
+            source: {},
+            stripeId: req.customer.id,
+            subscription: { current_period_end: 0 },
         });
     } catch (err) {
         res.status(400).json(distillError(err));
@@ -276,10 +306,11 @@ const handleSignup = async (req: Request, res: Response) => {
 
     // const mg_response = await mailgun.messages().send(data);
     // console.log(mg_response);
-    res.send();
+    req.session.email = email;
+    next();
 };
 
-const handleConfirmEmail = async (req: Request, res: Response) => {
+const handleConfirmEmail = async (req: Request, res: Response, next: NextFunction) => {
     const { email, key } = req.value;
     const handleConfError = () => {
         // don't let on if an email exists
@@ -322,8 +353,9 @@ const handleConfirmEmail = async (req: Request, res: Response) => {
 
     // Create Stripe subscription
     console.log("Awaiting subscription creation");
+    let subscription: Subscription;
     try {
-        await stripe.subscriptions.create({
+        subscription = await stripe.subscriptions.create({
             customer: user.stripeId,
             items: [{ plan }]
         });
@@ -333,62 +365,27 @@ const handleConfirmEmail = async (req: Request, res: Response) => {
         return;
     }
     req.session.email = email;
-    res.send();
+    req.subscription = subscription;
+    next();
 };
 
-const handleStripeWebhook = async (req: Request, res: Response) => {
+const handleStripeWebhook = async (req: Request, res: Response, next: NextFunction) => {
     // console.log(JSON.stringify(req.body, null, 4));
     console.log("New Webhook:");
     const object = req.body.data.object;
-
     const customerId = object.customer || object.id;
-    let stripeCustomer;
-    let user;
-
+    console.log('webook')
     try {
-        stripeCustomer = await stripe.customers.retrieve(customerId);
-        console.log(JSON.stringify(stripeCustomer, null, 4));
-        user = await users.findOne({ stripeId: customerId });
-        if (!user) {
+        req.customer = await stripe.customers.retrieve(customerId);
+        // console.log(JSON.stringify(stripeCustomer, null, 4));
+        req.user = await users.findOne({ stripeId: customerId });
+        if (!req.user) {
             return;
         }
-        // console.log(JSON.stringify(diff(user.stripe_cust, stripe_user), null, 4));
-        if (
-            stripeCustomer.subscriptions.total_count > 0 &&
-            stripeCustomer.subscriptions.data[0].current_period_end >
-                user.subscriptionCurrentPeriodEnd
-        ) {
-            const subscription = stripeCustomer.subscriptions.data[0];
-            const subscriptionId = subscription.id;
-            const subscriptionCurrentPeriodEnd =
-                subscription.current_period_end;
-            const subscriptionStatus = subscription.status;
-            const rmShapeCapacity = user.rmShapeCapacity + 5;
-            const rmMonthlyPrints = 5;
-            await users.findOneAndUpdate(
-                { stripeId: customerId },
-                {
-                    $set: {
-                        rmMonthlyPrints,
-                        rmShapeCapacity,
-                        subscriptionCurrentPeriodEnd,
-                        subscriptionId,
-                        subscriptionStatus
-                    }
-                }
-            );
-        }
-        // await users.findOneAndUpdate(
-        //  { stripe_id: customer_id },
-        //  { $set: { stripe_cust: stripe_user } }
-        // );
-        // user = await users.findOne({ stripeId: customerId });
-        // console.log(JSON.stringify(user, null, 4));
-        // console.log(customer_id.black.bgRed);
-        // console.log(req.body.type.black.bgRed);
     } catch (err) {
         console.log(err);
     }
+    next();
 };
 
 const handleLogin = async (req: Request, res: Response) => {

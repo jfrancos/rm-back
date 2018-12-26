@@ -62,7 +62,6 @@ describe("-- Get user --", () => {
 		});
 	});
 
-
 	describe("- Get user after cookie expires -", () => {
 		it("Should not return user", async () => {
 			// Setup
@@ -76,6 +75,7 @@ describe("-- Get user --", () => {
 			clock.restore();
 
 			res = await agent.post("/session/get_user");
+			console.log(res.body)
 			res.should.have.status(401);
 
 			users.drop();
@@ -90,6 +90,7 @@ describe("-- Get user --", () => {
 
 			res = await agent.post("/session/get_user");
 			res.should.have.status(401);
+			console.log(res)
 
 			agent.close();
 		});
