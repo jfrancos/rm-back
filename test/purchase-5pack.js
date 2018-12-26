@@ -37,31 +37,19 @@ const handleError = res =>
 
 describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 	before(async () => {
+		const spy = sinon.spy(sodium, "crypto_pwhash_str");
 		await chai.request(server)
 			.post(signup)
 			.send({ email, password, source: token });
 		let user = await users.findOne({ email });
-		const key = user.confirmationKey;
+		const key = spy.args[0][0];
 		console.log('1');
 		let res = await chai.request(server)
 			.post(confirmEmail)
 			.send({ key, email });
 		console.log('confirmed')
 		user = await users.findOne({ email });
-		// if (user.rmMonthlyPrints != 5) {
-		// 	// Wait for Stripe Webhooks to arrive
-		// 	console.log('Awaiting subscription via webhook')
-		// 	await new Promise(resolve => {
-		// 		const stream = users.watch()
-		// 		stream.on('change', async data => {
-		// 			user = await users.findOne({ email });
-		//  			if (user.rmMonthlyPrints === 5) {
-		// 				resolve();
-		// 				stream.close(); // does this unwatch the stream??
-		// 			}
-		// 		});
-		// 	});
-		// }
+
 	});
 	describe("-- Buying a 5 pack --", () => {
 		it("Should return 200", async () => {

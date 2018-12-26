@@ -11,15 +11,10 @@ const password = "ifthisislongenoughdictionarywordsarefine";
 const pwhash = "$argon2id$v=19$m=65536,t=4,p=1$VUnpyWRaGSkJRO5So4WfLg$SWBQIezrpoyFN6MNCytfge8enId3FcY/sm/H/Yd+g9U";
 const token = "tok_visa_debit";
 
-
 const server = app.app;
 const twoWeeks = 1209600000;
 
 chai.use(chaiHttp);
-
-// process.on("uncaughtException", err => {
-// 	fs.writeSync(1, `Caught exception: ${err}\n`);
-// });
 
 let users;
 
@@ -100,7 +95,7 @@ describe("-- Login --", () => {
 			// Setup
 			await users.insertOne({
 					email,
-					confirmationKey: "confirmation_key",
+					confKeyHash: "confirmation_key",
 					pwhash,
 				});
 

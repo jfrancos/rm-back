@@ -3,7 +3,6 @@ import bodyParser from "body-parser";
 import "colors";
 import connectMongo from "connect-mongo";
 import dotenv from "dotenv";
-import errorhandler from "errorhandler";
 import express, { Application, NextFunction, Request, Response } from "express";
 import expressSession from "express-session";
 import helmet from "helmet";
@@ -171,7 +170,7 @@ const handleCancelSubscription = async (req: Request, res: Response, next: NextF
 
 const updateUser = async (req: Request, res: Response) => {
     console.log("updating use")
-    const customer: Customer = req.customer;
+    const customer = req.customer;
     let subscription = req.subscription || customer.subscriptions.data[0];
     const set: { [key: string]: any } = {};
 
@@ -190,7 +189,7 @@ const updateUser = async (req: Request, res: Response) => {
     if (customer && customer.default_source) {
         const sourceId = customer.default_source;
         let source: { [key: string]: any } = customer.sources.data.find(
-            customerSource => customerSource.id === sourceId
+            customerSource => (customerSource as any).id === sourceId
         );
         const keys = ['last4', 'brand', 'exp_month', 'exp_year', 'id'];
         source = _.pick(source, keys);
@@ -272,13 +271,19 @@ const handleSignup = async (req: Request, res: Response, next: NextFunction) => 
     logMessage(req, `Successful signup with username [${email}]`);
     const confirmationKey = toBase64(sodium.crypto_auth_keygen());
     try {
+        const confKeyHash = sodium.crypto_pwhash_str(
+            confirmationKey,
+            sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
+            sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
+        );
+        console.log(confirmationKey, confKeyHash);
         const pwhash = sodium.crypto_pwhash_str(
             req.body.password,
             sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
             sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
         await users.insertOne({
-            confirmationKey,
+            confKeyHash,
             email,
             pwhash,
             rmExtraPrints: 0,
@@ -329,14 +334,15 @@ const handleConfirmEmail = async (req: Request, res: Response, next: NextFunctio
     }
 
     // Check if user is already confirmed
-    if (!user.confirmationKey) {
+    if (!user.confKeyHash) {
         handleConfError();
         console.log("UserAlreadyConfirmedError", "User is already confirmed");
         return;
     }
 
     // Check if key is correct
-    if (key !== user.confirmationKey) {
+    const isValid = sodium.crypto_pwhash_str_verify(user.confKeyHash, key);
+    if (!isValid) {
         handleConfError();
         console.log("ConfirmationKeyError", `Key does not match`);
         return;
@@ -345,7 +351,7 @@ const handleConfirmEmail = async (req: Request, res: Response, next: NextFunctio
     // Update DB
     await users.findOneAndUpdate(
         { email },
-        { $unset: { confirmationKey: "" } }
+        { $unset: { confKeyHash: "" } }
     );
     console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
 
@@ -396,7 +402,7 @@ const handleLogin = async (req: Request, res: Response) => {
         return;
     }
 
-    if (user.confirmationKey) {
+    if (user.confKeyHash) {
         console.log(`LOGIN_FAILED: [${email}] has not been confirmed`);
         handleError(
             req,

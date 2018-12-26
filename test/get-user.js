@@ -90,7 +90,7 @@ describe("-- Get user --", () => {
 
 			res = await agent.post("/session/get_user");
 			res.should.have.status(401);
-			console.log(res)
+			// console.log(res)
 
 			agent.close();
 		});
