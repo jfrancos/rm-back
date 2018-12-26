@@ -79,8 +79,6 @@ app.use(bodyParser.json());
 
 const sessionStore = new MongoStore({ url: mongodbUri });
 
-
-
 // // Start DB then Express then Mocha callback
 (async () => {
     process.removeAllListeners('uncaughtException'); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
