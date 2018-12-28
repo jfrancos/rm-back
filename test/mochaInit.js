@@ -17,6 +17,8 @@ before(done => {
         url,
         enabled_events: ["*"]
       });
+      // console.log(await stripe.webhookEndpoints.retrieve('we_1DlPFZEwB7PPnTr8uWWKxajK'));
+      console.log(endpoint)
       webhook_id = endpoint.id;
     } catch (err) {
       console.log(err);

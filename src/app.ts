@@ -1,7 +1,7 @@
 import assert from "assert";
 import bodyParser from "body-parser";
 import "colors";
-import connectMongo from "connect-mongo";
+import connectMongo from "connect-mongo"; // express-session store
 import dotenv from "dotenv";
 import express, { Application, NextFunction, Request, Response } from "express";
 import expressSession from "express-session";
@@ -40,10 +40,8 @@ const stripe = new Stripe(process.env.STRIPE_KEY);
 const plan = process.env.STRIPE_PLAN;
 
 // Mongo Init
-let secret: string;
 let mongoClient: mongodb.MongoClient;
 let users: mongodb.Collection;
-let secrets: mongodb.Collection;
 let shapes: mongodb.Collection;
 const mongodbUri = process.env.MONGODB_URI;
 const mongoInit = async () => {
@@ -52,7 +50,6 @@ const mongoInit = async () => {
         { useNewUrlParser: true }
     );
     users = mongoClient.db().collection("users");
-    secrets = mongoClient.db().collection("secrets");
     shapes = mongoClient.db().collection("shapes");
     try {
         console.log("creating index");
@@ -60,12 +57,6 @@ const mongoInit = async () => {
     } catch (err) {
         console.log(err);
     }
-    if ((await secrets.countDocuments()) === 0) {
-        await secrets.insertOne({
-            secret: toBase64(sodium.crypto_auth_keygen())
-        });
-    }
-    secret = (await secrets.findOne({})).secret;
 };
 
 // Express Init
@@ -88,6 +79,7 @@ const sessionStore = new MongoStore({ url: mongodbUri });
     const resave = false;
     const saveUninitialized = false;
     const store = sessionStore;
+    const secret = process.env.SESSION_KEY;
     const session = expressSession({
         resave,
         saveUninitialized,
@@ -106,7 +98,7 @@ const sessionStore = new MongoStore({ url: mongodbUri });
     app.post("/signup", session, validate, handleSignup, getUser);         // Interacts with Stripe -- returns customer // do i really want session here?
     app.post("/stripe", handleStripeWebhook);                              // returns customer
     app.post("/*", updateUser);
-    // app.post("/resend-conf-email", handleResendConfEmail);
+    app.post("/resend-conf-email", handleResendConfEmail);                // == This should be in session ==
     // app.post("/reset-password", handleResetPassword);
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
@@ -269,21 +261,15 @@ const handleSignup = async (req: Request, res: Response, next: NextFunction) => 
         return;
     }
     logMessage(req, `Successful signup with username [${email}]`);
-    const confirmationKey = toBase64(sodium.crypto_auth_keygen());
     try {
-        const confKeyHash = sodium.crypto_pwhash_str(
-            confirmationKey,
-            sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
-            sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
-        );
-        console.log(confirmationKey, confKeyHash);
+
         const pwhash = sodium.crypto_pwhash_str(
             req.body.password,
             sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
             sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
         await users.insertOne({
-            confKeyHash,
+            confKeyHash: "",
             email,
             pwhash,
             rmExtraPrints: 0,
@@ -298,6 +284,19 @@ const handleSignup = async (req: Request, res: Response, next: NextFunction) => 
         res.status(400).json(distillError(err));
         return;
     }
+    sendConfEmail(email);
+    req.session.email = email;
+    next();
+};
+
+const sendConfEmail = (email: string) => {
+    const confirmationKey = toBase64(sodium.crypto_auth_keygen());
+    const confKeyHash = sodium.crypto_pwhash_str(
+        confirmationKey,
+        sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
+        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
+    );
+    users.findOneAndUpdate({ email }, { $set: { confKeyHash }})
     // tslint:disable:object-literal-sort-keys
     const data = {
         from: "RhythMandala <signups@rhythmandala.com>",
@@ -306,12 +305,13 @@ const handleSignup = async (req: Request, res: Response, next: NextFunction) => 
         html: `${emailBody1}email=${email}&key=${confirmationKey}${emailBody2}`
     };
     // tslint:enable:object-literal-sort-keys
-
     // const mg_response = await mailgun.messages().send(data);
     // console.log(mg_response);
-    req.session.email = email;
-    next();
-};
+}
+
+const handleResendConfEmail = async (req: Request, res: Response, next: NextFunction) => {
+
+}
 
 const handleConfirmEmail = async (req: Request, res: Response, next: NextFunction) => {
     const { email, key } = req.value;

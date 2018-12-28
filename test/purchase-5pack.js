@@ -38,11 +38,12 @@ const handleError = res =>
 describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 	before(async () => {
 		const spy = sinon.spy(sodium, "crypto_pwhash_str");
-		await chai.request(server)
+		await chai
+			.request(server)
 			.post(signup)
 			.send({ email, password, source: token });
 		let user = await users.findOne({ email });
-		const key = spy.args[0][0];
+		const key = spy.args[1][0];
 		console.log('1');
 		let res = await chai.request(server)
 			.post(confirmEmail)

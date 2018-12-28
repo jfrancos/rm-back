@@ -150,7 +150,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				.post(signup)
 				.send({ email, password, source: token });
 			let user = await users.findOne({ email });
-			const key = spy.args[0][0]
+			const key = spy.args[1][0]
 
 			// Exercise
 			const res = await chai   /// had await but i think that causes issues
@@ -194,7 +194,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				.post(signup)
 				.send({ email, password, source: "tok_chargeCustomerFail" });
 			let user = await users.findOne({ email });
-			const key = spy.args[0][0];
+			const key = spy.args[1][0];
 			user.should.contain.key("confKeyHash");
 
 			// Exercise
