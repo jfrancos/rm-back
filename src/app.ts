@@ -9,12 +9,11 @@ import sodium from "libsodium-wrappers-sumo";
 import _ from "lodash";
 import Mailgun from "mailgun-js";
 import mongodb from "mongodb";
-import Stripe, { ICard, IStripeError } from "stripe";
+import Stripe, { ICard, IStripeError, subscriptions } from "stripe";
 import validate from "./validate";
 
 dotenv.config();
-type Customer = Stripe.customers.ICustomer;
-type Subscription = Stripe.subscriptions.ISubscription;
+// type Customer = Stripe.customers.ICustomer;
 
 // Libsodium Init
 const sodiumInit = async () => {
@@ -99,27 +98,34 @@ const expressInit = (session: express.Handler) => {
     app.post("/session/update-source", handleUpdateSource); // Interacts with Stripe -- returns customer
     app.post("/session/purchase_five_pack", handlePurchase5Pack); // Interacts with Stripe -- returns charge object
     app.post("/session/cancel-subscription", handleCancelSubscription); // Interacts with Stripe -- returns subscription
+    app.post("/session/resend-conf-email", handleResendConfEmail); // == This should be in session ==
     app.post("/signup", session, validate, handleSignup, getUser); // Interacts with Stripe -- returns customer // do i really want session here?
     app.post("/stripe", handleStripeWebhook); // returns customer
     app.post("/*", updateUser);
-    app.post("/resend-conf-email", handleResendConfEmail); // == This should be in session ==
     // app.post("/reset-password", handleResetPassword);
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
 };
 
 // Start server
-let expressServer: http.Server;
 const startServer = async (url: string) => {
     await Promise.all([stripeInit(url), sodiumInit(), mongoInit()]);
     const session = sessionInit();
     mailgun = mailgunInit();
     expressInit(session);
-    expressServer = app.listen(process.env.PORT);
+    const expressServer = app.listen(process.env.PORT);
+    expressServer.on("close", async () => {
+        await mongoClient.close();
+        await (sessionStore as any).close(); // submitted pull request to DefinitelyTyped
+        await (stripe as any).webhookEndpoints.del(webhook.id);
+        process.exit(); // to kill ngrok during testing
+    });
+    process.on('SIGTERM', () => {
+        expressServer.close();
+    });
 };
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
-    console.log("entering getUser");
     // let user;
     const user = await users.findOne({ email: req.session.email });
 
@@ -173,7 +179,6 @@ const handleCancelSubscription = async (
 };
 
 const updateUser = async (req: Request, res: Response) => {
-    console.log("updating use");
     const customer = req.customer;
     let subscription = req.subscription || customer.subscriptions.data[0];
     const set: { [key: string]: any } = {};
@@ -275,11 +280,9 @@ const handleSignup = async (
         return;
     }
 
-    //    let customer: Customer;
     try {
         logMessage(req, "Awaiting customer creation");
         req.customer = await stripe.customers.create({ source, email });
-        // console.log(customer);
     } catch (err) {
         handleError(req, res, err.type, err.message);
         return;
@@ -336,7 +339,9 @@ const handleResendConfEmail = async (
     req: Request,
     res: Response,
     next: NextFunction
-) => {};
+) => {
+    sendConfEmail(req.session.email);
+};
 
 const handleConfirmEmail = async (
     req: Request,
@@ -383,7 +388,7 @@ const handleConfirmEmail = async (
 
     // Create Stripe subscription
     console.log("Awaiting subscription creation");
-    let subscription: Subscription;
+    let subscription: subscriptions.ISubscription;
     try {
         subscription = await stripe.subscriptions.create({
             customer: user.stripeId,
@@ -425,6 +430,8 @@ const handleStripeWebhook = async (
         }
     } catch (err) {
         console.log(err);
+        res.sendStatus(400);
+        return;
     }
     next();
 };
@@ -491,14 +498,6 @@ function distillError(error: any) {
     return error;
 }
 
-const close = async () => {
-    expressServer.close();
-    await mongoClient.close();
-    await (sessionStore as any).close(); // submitted pull request to DefinitelyTyped
-    await (stripe as any).webhookEndpoints.del(webhook.id);
-    // await sessionStore.close();
-};
-
 function getUsers() {
     return users;
 }
@@ -509,7 +508,6 @@ if (require.main === module) {
 
 module.exports = {
     app,
-    close,
     getUsers,
     handleError,
     handleStripeWebhook,

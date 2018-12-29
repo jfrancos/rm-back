@@ -151,7 +151,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Teardown
 			sodium.crypto_pwhash_str.restore();
 			await users.drop();
-		}).timeout(30000);
+		});
 	});
 
 	// describe("timing test", () => {
@@ -193,7 +193,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			// Teardown
 			sodium.crypto_pwhash_str.restore();
 			await users.drop();
-		}).timeout(10000);
+		});
 	});
 
 	describe("-- Confirming a newly created account with bad stripe_id --", () => {

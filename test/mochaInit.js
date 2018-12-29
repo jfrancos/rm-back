@@ -7,12 +7,8 @@ before(async () => {
   const url = (await ngrok.connect(process.env.PORT));
   await app.startServer(url);
   app.getUsers().drop();
-  console.log(1);
 });
 
-after(async () => {  // so mocha doesn't hang without --exit
-  // await ngrok.disconnect();
-  await ngrok.kill();
-  setTimeout(app.close, 1000);
-//  app.close();
+after(async () => { // Heroku will call SIGTERM
+  process.kill(process.pid, 'SIGTERM');
 });

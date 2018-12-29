@@ -86,7 +86,7 @@ describe("--- TESTING SIGNUP ---", () => {
       res.body.should.have.property("code", "StripeInvalidRequestError");
       res.should.have.status(400);
       handleError(res);
-    }).timeout(10000);
+    });
   });
 
   describe("-- With existing email --", () => {
@@ -107,7 +107,7 @@ describe("--- TESTING SIGNUP ---", () => {
 
       // Teardown
       users.drop();
-    }).timeout(10000);
+    });
   });
 
   describe("-- With valid parameters --", () => {
@@ -125,6 +125,6 @@ describe("--- TESTING SIGNUP ---", () => {
 
       // Teardown
       //users.drop();
-    }).timeout(10000);
+    });
   });
 });

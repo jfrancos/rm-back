@@ -1,1 +1,2 @@
 --file test/mochaInit.js
+--no-timeouts

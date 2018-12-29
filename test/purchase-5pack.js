@@ -38,11 +38,9 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			.send({ email, password, source: token });
 		let user = await users.findOne({ email });
 		const key = spy.args[1][0];
-		console.log('1');
 		let res = await chai.request(server)
 			.post(confirmEmail)
 			.send({ key, email });
-		console.log('confirmed')
 		user = await users.findOne({ email });
 
 	});
@@ -64,7 +62,7 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 
 			// Teardown
 			agent.close();
-		}).timeout(30000);
+		});
 	});
 	describe("-- Changing source --", () => {
 		it("Should return 200", async () => {
@@ -72,20 +70,15 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			const agent = chai.request.agent(server);
 			await agent.post("/new-session/login").send({ email, password });
 			user = await users.findOne({ email });
-			//console.log(user)
 			const res = await agent.post("/session/update-source").send({ source: "tok_visa" });
 			user = await users.findOne({ email });
-			console.log(user)
 
 			// Verify
 			res.should.have.status(200);
-			// user.should.have.property("rmMonthlyPrints", 5);
-			// user.should.have.property("rmExtraPrints", 5);
-			// user.should.have.property("rmShapeCapacity", 10);
 
 			// Teardown
 			agent.close();
-		}).timeout(30000);
+		});
 	});
 	describe("-- Cancelling subscription --", () => {
 		it("Should return 200", async () => {
@@ -93,20 +86,15 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			const agent = chai.request.agent(server);
 			await agent.post("/new-session/login").send({ email, password });
 			user = await users.findOne({ email });
-			//console.log(user)
 			const res = await agent.post("/session/cancel-subscription");
 			user = await users.findOne({ email });
-			console.log(user)
 
 			// Verify
 			res.should.have.status(200);
-			// user.should.have.property("rmMonthlyPrints", 5);
-			// user.should.have.property("rmExtraPrints", 5);
-			// user.should.have.property("rmShapeCapacity", 10);
 
 			// Teardown
 			agent.close();
-		}).timeout(30000)
+		})
 	})
 	after(async () => {
 		await users.drop();
