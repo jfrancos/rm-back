@@ -9,6 +9,6 @@ before(async () => {
   app.getUsers().drop();
 });
 
-after(async () => { // Heroku will call SIGTERM
+after(async () => { // Heroku will call SIGTERM every day
   process.kill(process.pid, 'SIGTERM');
 });

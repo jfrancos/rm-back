@@ -120,7 +120,7 @@ const startServer = async (url: string) => {
         await (stripe as any).webhookEndpoints.del(webhook.id);
         process.exit(); // to kill ngrok during testing
     });
-    process.on('SIGTERM', () => {
+    process.on("SIGTERM", () => {
         expressServer.close();
     });
 };
@@ -224,6 +224,7 @@ const updateUser = async (req: Request, res: Response) => {
             console.log(err);
         }
     }
+    console.log("updated user");
     res.send();
 };
 
@@ -399,6 +400,7 @@ const handleConfirmEmail = async (
         handleError(req, null, err.type, err.message);
         return;
     }
+    console.log("successful subscritpion creation");
     req.session.email = email;
     req.subscription = subscription;
     next();
@@ -426,6 +428,8 @@ const handleStripeWebhook = async (
         // console.log(JSON.stringify(stripeCustomer, null, 4));
         req.user = await users.findOne({ stripeId: customerId });
         if (!req.user) {
+            res.sendStatus(400);
+            console.log("no req");
             return;
         }
     } catch (err) {
@@ -510,7 +514,6 @@ module.exports = {
     app,
     getUsers,
     handleError,
-    handleStripeWebhook,
     startServer
 };
 

@@ -5,3 +5,6 @@ coverage
 .env
 .nyc_output
 async-dump.js
+/.scannerwork/
+
+/src/schema

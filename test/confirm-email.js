@@ -23,7 +23,7 @@ chai.use(sinonChai);
 let users;
 before(async () => {
 	users = app.getUsers();
-}); // This depends on mochaInit.js to work
+});
 
 const handleError = res =>
 	console.log(`MOCHA/CHAI: ${res.body.code}: ${res.body.message}`);
@@ -57,6 +57,7 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 				} catch (err) {
 					console.log(err)
 				}
+
 				console.log.restore();
 			});
 		});
