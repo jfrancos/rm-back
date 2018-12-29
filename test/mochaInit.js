@@ -7,14 +7,12 @@ before(async () => {
   const url = (await ngrok.connect(process.env.PORT));
   await app.startServer(url);
   app.getUsers().drop();
+  console.log(1);
 });
 
-after(() => {
-  ngrok.kill();
-  setTimeout(async () => {
-    // await stripe.webhookEndpoints.del(webhook_id)
-    app.close();
-  }, 1000);
-  //await stripe.webhookEndpoints.del(webhook_id);
-  //app.close();
-}); // so mocha doesn't hang without --exit
+after(async () => {  // so mocha doesn't hang without --exit
+  // await ngrok.disconnect();
+  await ngrok.kill();
+  setTimeout(app.close, 1000);
+//  app.close();
+});

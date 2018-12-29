@@ -20,10 +20,10 @@ type Subscription = Stripe.subscriptions.ISubscription;
 
 // Libsodium Init
 const sodiumInit = async () => {
-    process.removeAllListeners('uncaughtException');
-    process.removeAllListeners('unhandledRejection'); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
+    process.removeAllListeners("uncaughtException");
+    process.removeAllListeners("unhandledRejection"); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
     await sodium.ready;
-}
+};
 
 // Express Session Init
 let sessionStore: connectMongo.MongoStore;
@@ -35,7 +35,7 @@ const sessionInit = () => {
     const store = sessionStore;
     const secret = process.env.SESSION_KEY;
     return expressSession({ resave, saveUninitialized, secret, store });
-}
+};
 
 // Mailgun Init
 let mailgun: Mailgun.Mailgun;
@@ -51,7 +51,7 @@ const mailgunInit = () => {
     const domain = "mg.rhythmandala.com";
     const apiKey = process.env.MG_KEY;
     return new Mailgun({ apiKey, domain });
-}
+};
 
 // Stripe Init
 let webhook: any;
@@ -61,15 +61,15 @@ const stripeInit = async (url: string) => {
     const limit = 100;
     const webhooks = await (stripe as any).webhookEndpoints.list({ limit });
     const data = webhooks.data;
-    data.forEach( async (datum: any) =>
+    data.forEach(async (datum: any) =>
         (stripe as any).webhookEndpoints.del(datum.id)
-    )
+    );
     url += "/stripe";
     webhook = await (stripe as any).webhookEndpoints.create({
         enabled_events: ["*"],
-        url,
+        url
     });
-}
+};
 
 // Mongo Init
 let mongoClient: mongodb.MongoClient;
@@ -90,41 +90,38 @@ const mongoInit = async () => {
 const app = express();
 const expressInit = (session: any) => {
     app.use(helmet());
+    app.use("/stripe", bodyParser.raw({ type: "*/*" }));
     app.use(bodyParser.json());
     app.post("/new-session/*", session, validate);
     app.post("/new-session/login", handleLogin);
-    app.post("/new-session/confirm_email", handleConfirmEmail, getUser);            // Interacts with Stripe -- returns subscription
+    app.post("/new-session/confirm_email", handleConfirmEmail, getUser); // Interacts with Stripe -- returns subscription
     app.post("/session/*", session, validate, getUser);
     app.post("/session/get_user", handleGetUser);
     app.post("/session/logout", handleLogout);
-    app.post("/session/update-source", handleUpdateSource);                // Interacts with Stripe -- returns customer
-    app.post("/session/purchase_five_pack", handlePurchase5Pack);          // Interacts with Stripe -- returns charge object
-    app.post("/session/cancel-subscription", handleCancelSubscription);    // Interacts with Stripe -- returns subscription
-    app.post("/signup", session, validate, handleSignup, getUser);         // Interacts with Stripe -- returns customer // do i really want session here?
-    app.post("/stripe", handleStripeWebhook);                              // returns customer
+    app.post("/session/update-source", handleUpdateSource); // Interacts with Stripe -- returns customer
+    app.post("/session/purchase_five_pack", handlePurchase5Pack); // Interacts with Stripe -- returns charge object
+    app.post("/session/cancel-subscription", handleCancelSubscription); // Interacts with Stripe -- returns subscription
+    app.post("/signup", session, validate, handleSignup, getUser); // Interacts with Stripe -- returns customer // do i really want session here?
+    app.post("/stripe", handleStripeWebhook); // returns customer
     app.post("/*", updateUser);
-    app.post("/resend-conf-email", handleResendConfEmail);                // == This should be in session ==
+    app.post("/resend-conf-email", handleResendConfEmail); // == This should be in session ==
     // app.post("/reset-password", handleResetPassword);
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
-}
+};
 
 // Start server
 let expressServer: http.Server;
 const startServer = async (url: string) => {
-    await Promise.all([
-        stripeInit(url),
-        sodiumInit(),
-        mongoInit(),
-    ]);
+    await Promise.all([stripeInit(url), sodiumInit(), mongoInit()]);
     const session = sessionInit();
     mailgun = mailgunInit();
     expressInit(session);
     expressServer = app.listen(process.env.PORT);
-}
+};
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
-    console.log("entering getUser")
+    console.log("entering getUser");
     // let user;
     const user = await users.findOne({ email: req.session.email });
 
@@ -156,9 +153,16 @@ const handleUpdateSource = async (req: Request, res: Response) => {
     res.send();
 };
 
-const handleCancelSubscription = async (req: Request, res: Response, next: NextFunction) => {
+const handleCancelSubscription = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
     try {
-        req.subscription = await stripe.subscriptions.update(req.user.subscription.id, { cancel_at_period_end: true });
+        req.subscription = await stripe.subscriptions.update(
+            req.user.subscription.id,
+            { cancel_at_period_end: true }
+        );
         // customer = await stripe.customers.deleteSource(req.user.stripeId, req.user.sourceId); // Is this necessary?
         // customer = await stripe.customers.retrieve(req.user.stripeId);
     } catch (err) {
@@ -168,21 +172,29 @@ const handleCancelSubscription = async (req: Request, res: Response, next: NextF
     }
     // console.log(customer)
     next();
-}
+};
 
 const updateUser = async (req: Request, res: Response) => {
-    console.log("updating use")
+    console.log("updating use");
     const customer = req.customer;
     let subscription = req.subscription || customer.subscriptions.data[0];
     const set: { [key: string]: any } = {};
 
     if (subscription) {
-        const keys = [ 'current_period_end', 'id', 'status', 'cancel_at_period_end' ];
+        const keys = [
+            "current_period_end",
+            "id",
+            "status",
+            "cancel_at_period_end"
+        ];
         subscription = _.pick(subscription, keys);
 
         if (!_.isEqual(subscription, req.user.subscription)) {
             set.subscription = subscription;
-            if (subscription.current_period_end > req.user.subscription.current_period_end) {
+            if (
+                subscription.current_period_end >
+                req.user.subscription.current_period_end
+            ) {
                 set.rmShapeCapacity = req.user.rmShapeCapacity + 5;
                 set.rmMonthlyPrints = 5;
             }
@@ -193,7 +205,7 @@ const updateUser = async (req: Request, res: Response) => {
         let source: { [key: string]: any } = customer.sources.data.find(
             customerSource => (customerSource as any).id === sourceId
         );
-        const keys = ['last4', 'brand', 'exp_month', 'exp_year', 'id'];
+        const keys = ["last4", "brand", "exp_month", "exp_year", "id"];
         source = _.pick(source, keys);
         if (!_.isEqual(source, req.user.source)) {
             set.source = source;
@@ -210,7 +222,7 @@ const updateUser = async (req: Request, res: Response) => {
         }
     }
     res.send();
-}
+};
 
 const handlePurchase5Pack = async (req: Request, res: Response) => {
     try {
@@ -252,8 +264,12 @@ const handleGetUser = async (req: Request, res: Response) => {
     res.send(user);
 };
 
-const handleSignup = async (req: Request, res: Response, next: NextFunction) => {
-    console.log("ENTERING SETUP")
+const handleSignup = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    console.log("ENTERING SETUP");
     const { email, password, source } = req.value;
     const user = await users.findOne({ email });
     if (user) {
@@ -261,7 +277,7 @@ const handleSignup = async (req: Request, res: Response, next: NextFunction) => 
         return;
     }
 
-//    let customer: Customer;
+    //    let customer: Customer;
     try {
         logMessage(req, "Awaiting customer creation");
         req.customer = await stripe.customers.create({ source, email });
@@ -272,7 +288,6 @@ const handleSignup = async (req: Request, res: Response, next: NextFunction) => 
     }
     logMessage(req, `Successful signup with username [${email}]`);
     try {
-
         const pwhash = sodium.crypto_pwhash_str(
             req.body.password,
             sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
@@ -288,7 +303,7 @@ const handleSignup = async (req: Request, res: Response, next: NextFunction) => 
             rmShapes: {},
             source: {},
             stripeId: req.customer.id,
-            subscription: { current_period_end: 0 },
+            subscription: { current_period_end: 0 }
         });
     } catch (err) {
         res.status(400).json(distillError(err));
@@ -306,7 +321,7 @@ const sendConfEmail = (email: string) => {
         sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
         sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
     );
-    users.findOneAndUpdate({ email }, { $set: { confKeyHash }})
+    users.findOneAndUpdate({ email }, { $set: { confKeyHash } });
     // tslint:disable:object-literal-sort-keys
     const data = {
         from: "RhythMandala <signups@rhythmandala.com>",
@@ -317,13 +332,19 @@ const sendConfEmail = (email: string) => {
     // tslint:enable:object-literal-sort-keys
     // const mg_response = await mailgun.messages().send(data);
     // console.log(mg_response);
-}
+};
 
-const handleResendConfEmail = async (req: Request, res: Response, next: NextFunction) => {
+const handleResendConfEmail = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {};
 
-}
-
-const handleConfirmEmail = async (req: Request, res: Response, next: NextFunction) => {
+const handleConfirmEmail = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
     const { email, key } = req.value;
     const handleConfError = () => {
         // don't let on if an email exists
@@ -359,10 +380,7 @@ const handleConfirmEmail = async (req: Request, res: Response, next: NextFunctio
     }
 
     // Update DB
-    await users.findOneAndUpdate(
-        { email },
-        { $unset: { confKeyHash: "" } }
-    );
+    await users.findOneAndUpdate({ email }, { $unset: { confKeyHash: "" } });
     console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
 
     // Create Stripe subscription
@@ -383,10 +401,22 @@ const handleConfirmEmail = async (req: Request, res: Response, next: NextFunctio
     next();
 };
 
-const handleStripeWebhook = async (req: Request, res: Response, next: NextFunction) => {
+const handleStripeWebhook = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
     // console.log(JSON.stringify(req.body, null, 4));
     console.log("New Webhook:");
-    const object = req.body.data.object;
+    const sig = req.headers["stripe-signature"];
+    let event;
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, webhook.secret);
+    } catch (err) {
+        res.sendStatus(400);
+        return;
+    }
+    const object = event.data.object;
     const customerId = object.customer || object.id;
     try {
         req.customer = await stripe.customers.retrieve(customerId);

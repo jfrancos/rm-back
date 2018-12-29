@@ -12,21 +12,6 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-
-process.on('unhandledRejection', (reason, p) => {
-    console.log("Unhandled Rejection at: Promise ", p, " reason: ", reason);
-    // application specific logging, throwing an error, or other logic here
-});
-process.on('uncaughtException', function (exception) {
-  console.log(exception); // to see your exception details in the console
-  // if you are on production, maybe you can send the exception details to your
-  // email as well ?
-});
-
-// process.on('uncaughtException', (err) => {
-//   fs.writeSync(1, `Caught exception: ${err}\n`);
-// });
-
 const confirmEmail = "/new-session/confirm_email"
 const signup = "/signup"
 
@@ -35,12 +20,9 @@ const server = app.app;
 chai.use(chaiHttp);
 chai.use(sinonChai);
 
-let users, ngrokUrl;
+let users;
 before(async () => {
-	await sodium.ready;
 	users = app.getUsers();
-	//  users = app.users;
-
 }); // This depends on mochaInit.js to work
 
 const handleError = res =>

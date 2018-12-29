@@ -12,10 +12,6 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-// process.on('uncaughtException', (err) => {
-//   fs.writeSync(1, `Caught exception: ${err}\n`);
-// });
-
 const confirmEmail = "/new-session/confirm_email"
 const signup = "/signup"
 
@@ -26,9 +22,7 @@ chai.use(sinonChai);
 
 let users;
 before(async () => {
-	await sodium.ready;
 	users = app.getUsers();
-	//  users = app.users;
 
 }); // This depends on mochaInit.js to work
 

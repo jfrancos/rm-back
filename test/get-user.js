@@ -19,10 +19,6 @@ const login = "/new-session/login"
 
 chai.use(chaiHttp);
 
-// process.on("uncaughtException", err => {
-// 	fs.writeSync(1, `Caught exception: ${err}\n`);
-// });
-
 let users;
 
 before(() => (users = app.getUsers())); // This depends on mochaInit.js to work
