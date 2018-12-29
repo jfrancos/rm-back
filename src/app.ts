@@ -22,7 +22,7 @@ type Subscription = Stripe.subscriptions.ISubscription;
 const sodiumInit = async () => {
     process.removeAllListeners('uncaughtException');
     process.removeAllListeners('unhandledRejection'); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
-    await sodium.ready; // mongoInit depends on sodium being ready
+    await sodium.ready;
 }
 
 // Express Session Init
@@ -111,10 +111,12 @@ const expressInit = (session: any) => {
 
 // Start server
 let expressServer: http.Server;
-const startServer = async (url?: string) => {
-    await sodiumInit();
-    await mongoInit();
-    await stripeInit(url || process.env.URL);
+const startServer = async (url: string) => {
+    await Promise.all([
+        stripeInit(url),
+        sodiumInit(),
+        mongoInit(),
+    ]);
     const session = sessionInit();
     mailgun = mailgunInit();
     expressInit(session);
@@ -386,7 +388,6 @@ const handleStripeWebhook = async (req: Request, res: Response, next: NextFuncti
     console.log("New Webhook:");
     const object = req.body.data.object;
     const customerId = object.customer || object.id;
-    console.log('webook')
     try {
         req.customer = await stripe.customers.retrieve(customerId);
         // console.log(JSON.stringify(stripeCustomer, null, 4));
@@ -467,7 +468,6 @@ const close = async () => {
     await mongoClient.close();
     await (sessionStore as any).close(); // submitted pull request to DefinitelyTyped
     await (stripe as any).webhookEndpoints.del(webhook.id);
-
     // await sessionStore.close();
 };
 
@@ -476,7 +476,7 @@ function getUsers() {
 }
 
 if (require.main === module) {
-    startServer();
+    startServer(process.env.URL);
 }
 
 module.exports = {
