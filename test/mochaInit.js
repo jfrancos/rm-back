@@ -8,7 +8,7 @@ dotenv.config();
 const stripe = require("stripe")(process.env.STRIPE_KEY);
 let webhook_id;
 
-before(done => {
+before(async () => {
   // this will get called once mongo is initialized:
   (async () => {
     try {
@@ -24,14 +24,8 @@ before(done => {
       console.log(err);
     }
   })();
-
-  // I think there's a race condition here: if users is already ready when
-  // setMochaCAllback is called it won't get called (?)
-  app.setMochaCallback(() => {
-    //    we don't want mocha to manipulate db before it's up.
-    app.getUsers().drop(); // empty db before starting tests
-    done(); // now we can start tests
-  });
+  await app.startServer();
+  app.getUsers().drop();
 });
 
 // after(async () => {

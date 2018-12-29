@@ -14,18 +14,31 @@ import mongodb from "mongodb";
 import Stripe, { ICard, IStripeError } from "stripe";
 import validate from "./validate";
 
-// const fs = require ('fs');
-// var diff = require("deep-diff").diff;
-
 dotenv.config();
 type Customer = Stripe.customers.ICustomer;
 type Subscription = Stripe.subscriptions.ISubscription;
-const MongoStore = connectMongo(expressSession);
+
+// Libsodium Init
+const sodiumInit = async () => {
+    process.removeAllListeners('uncaughtException');
+    process.removeAllListeners('unhandledRejection'); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
+    await sodium.ready; // mongoInit depends on sodium being ready
+}
+
+// Express Session Init
+let sessionStore: connectMongo.MongoStore;
+const sessionInit = () => {
+    const MongoStore = connectMongo(expressSession);
+    sessionStore = new MongoStore({ url: process.env.MONGODB_URI });
+    const resave = false;
+    const saveUninitialized = false;
+    const store = sessionStore;
+    const secret = process.env.SESSION_KEY;
+    return expressSession({ resave, saveUninitialized, secret, store });
+}
 
 // Mailgun Init
-const domain = "mg.rhythmandala.com";
-const apiKey = process.env.MG_KEY;
-const mailgun = new Mailgun({ apiKey, domain });
+let mailgun: Mailgun.Mailgun;
 const emailBody1 = `<p>Dear Rhythm Aficionado,
     <p>Thank you for subscribing to RhythMandala! Our goal is to make complex \
 rhythmic structures from all across the globe simple, accessible and playable \
@@ -34,6 +47,11 @@ rhythm in the body. If you have any questions, please email ryan@tapgym.com.
     <p>Go ahead and <a href='https://app.rhythmandala.com?`;
 const emailBody2 = `'>click this link to complete your registration</a> and \
 have fun!`;
+const mailgunInit = () => {
+    const domain = "mg.rhythmandala.com";
+    const apiKey = process.env.MG_KEY;
+    return new Mailgun({ apiKey, domain });
+}
 
 // Stripe Init
 const stripe = new Stripe(process.env.STRIPE_KEY);
@@ -43,49 +61,22 @@ const plan = process.env.STRIPE_PLAN;
 let mongoClient: mongodb.MongoClient;
 let users: mongodb.Collection;
 let shapes: mongodb.Collection;
-const mongodbUri = process.env.MONGODB_URI;
 const mongoInit = async () => {
     mongoClient = await mongodb.connect(
-        mongodbUri,
+        process.env.MONGODB_URI,
         { useNewUrlParser: true }
     );
     users = mongoClient.db().collection("users");
     shapes = mongoClient.db().collection("shapes");
-    try {
-        console.log("creating index");
-        await users.createIndex({ email: 1 }, { unique: true });
-    } catch (err) {
-        console.log(err);
-    }
+    console.log("creating index");
+    await users.createIndex({ email: 1 }, { unique: true });
 };
 
 // Express Init
 const app = express();
-const port = process.env.PORT;
-console.log(port)
-let expressServer: http.Server;
-app.use(helmet());
-app.use(bodyParser.json());
-
-const sessionStore = new MongoStore({ url: mongodbUri });
-
-// // Start DB then Express then Mocha callback
-(async () => {
-    process.removeAllListeners('uncaughtException'); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
-    process.removeAllListeners('unhandledRejection'); 
-    await sodium.ready; // mongoInit depends on sodium being ready
-
-    await mongoInit();
-    const resave = false;
-    const saveUninitialized = false;
-    const store = sessionStore;
-    const secret = process.env.SESSION_KEY;
-    const session = expressSession({
-        resave,
-        saveUninitialized,
-        secret,
-        store
-    });
+const expressInit = (session: any) => {
+    app.use(helmet());
+    app.use(bodyParser.json());
     app.post("/new-session/*", session, validate);
     app.post("/new-session/login", handleLogin);
     app.post("/new-session/confirm_email", handleConfirmEmail, getUser);            // Interacts with Stripe -- returns subscription
@@ -102,16 +93,18 @@ const sessionStore = new MongoStore({ url: mongodbUri });
     // app.post("/reset-password", handleResetPassword);
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
+}
 
-    try {
-        expressServer = app.listen(port);
-    } catch (err) {
-        console.log(err);
-    }
-    if (mochaCallback) {
-        mochaCallback();
-    }
-})();
+// Start server
+let expressServer: http.Server;
+const startServer = async () => {
+    await sodiumInit();
+    await mongoInit();
+    const session = sessionInit();
+    mailgun = mailgunInit();
+    expressInit(session);
+    expressServer = app.listen(process.env.PORT);
+}
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
     console.log("entering getUser")
@@ -465,10 +458,8 @@ function getUsers() {
     return users;
 }
 
-let mochaCallback: () => {};
-
-function setMochaCallback(callback: () => {}) {
-    mochaCallback = callback;
+if (require.main === module) {
+    startServer();
 }
 
 module.exports = {
@@ -477,8 +468,7 @@ module.exports = {
     getUsers,
     handleError,
     handleStripeWebhook,
-    setMochaCallback,
-    users
+    startServer
 };
 
 export default module.exports;
