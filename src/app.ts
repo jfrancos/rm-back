@@ -1,6 +1,4 @@
-import assert from "assert";
 import bodyParser from "body-parser";
-import "colors";
 import connectMongo from "connect-mongo"; // express-session store
 import dotenv from "dotenv";
 import express, { Application, NextFunction, Request, Response } from "express";
@@ -88,7 +86,7 @@ const mongoInit = async () => {
 
 // Express Init
 const app = express();
-const expressInit = (session: any) => {
+const expressInit = (session: express.Handler) => {
     app.use(helmet());
     app.use("/stripe", bodyParser.raw({ type: "*/*" }));
     app.use(bodyParser.json());
