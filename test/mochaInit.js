@@ -9,22 +9,8 @@ const stripe = require("stripe")(process.env.STRIPE_KEY);
 let webhook_id;
 
 before(async () => {
-  // this will get called once mongo is initialized:
-  (async () => {
-    try {
-      const url = (await ngrok.connect(process.env.PORT)) + "/stripe";
-      const endpoint = await stripe.webhookEndpoints.create({
-        url,
-        enabled_events: ["*"]
-      });
-      // console.log(await stripe.webhookEndpoints.retrieve('we_1DlPFZEwB7PPnTr8uWWKxajK'));
-      console.log(endpoint)
-      webhook_id = endpoint.id;
-    } catch (err) {
-      console.log(err);
-    }
-  })();
-  await app.startServer();
+  const url = (await ngrok.connect(process.env.PORT));
+  await app.startServer(url);
   app.getUsers().drop();
 });
 
@@ -38,7 +24,7 @@ before(async () => {
 after(() => {
   ngrok.kill();
   setTimeout(async () => {
-    await stripe.webhookEndpoints.del(webhook_id)
+    // await stripe.webhookEndpoints.del(webhook_id)
     app.close();
   }, 1000);
   //await stripe.webhookEndpoints.del(webhook_id);

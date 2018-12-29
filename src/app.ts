@@ -54,8 +54,22 @@ const mailgunInit = () => {
 }
 
 // Stripe Init
+let webhook: any;
 const stripe = new Stripe(process.env.STRIPE_KEY);
 const plan = process.env.STRIPE_PLAN;
+const stripeInit = async (url: string) => {
+    const limit = 100;
+    const webhooks = await (stripe as any).webhookEndpoints.list({ limit });
+    const data = webhooks.data;
+    data.forEach( async (datum: any) =>
+        (stripe as any).webhookEndpoints.del(datum.id)
+    )
+    url += "/stripe";
+    webhook = await (stripe as any).webhookEndpoints.create({
+        enabled_events: ["*"],
+        url,
+    });
+}
 
 // Mongo Init
 let mongoClient: mongodb.MongoClient;
@@ -97,9 +111,10 @@ const expressInit = (session: any) => {
 
 // Start server
 let expressServer: http.Server;
-const startServer = async () => {
+const startServer = async (url?: string) => {
     await sodiumInit();
     await mongoInit();
+    await stripeInit(url || process.env.URL);
     const session = sessionInit();
     mailgun = mailgunInit();
     expressInit(session);
@@ -451,6 +466,8 @@ const close = async () => {
     expressServer.close();
     await mongoClient.close();
     await (sessionStore as any).close(); // submitted pull request to DefinitelyTyped
+    await (stripe as any).webhookEndpoints.del(webhook.id);
+
     // await sessionStore.close();
 };
 
