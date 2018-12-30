@@ -12,8 +12,10 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-const confirmEmail = "/new-session/confirm_email"
-const signup = "/signup"
+const confirmEmail = "/new-session/confirm_email";
+const signup = "/signup";
+const logout = "/logout";
+const login = "/login";
 
 const server = app.app;
 
@@ -23,7 +25,6 @@ chai.use(sinonChai);
 let users;
 before(async () => {
 	users = app.getUsers();
-
 }); // This depends on mochaInit.js to work
 
 const handleError = res =>
@@ -32,23 +33,30 @@ const handleError = res =>
 describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 	before(async () => {
 		const spy = sinon.spy(sodium, "crypto_pwhash_str");
-		await chai
-			.request(server)
+		const agent = chai.request.agent(server);
+		await agent
 			.post(signup)
 			.send({ email, password, source: token });
 		let user = await users.findOne({ email });
+		await agent
+			.post(signup)
+			.send({ email: "adsf@asdf.com", password: "4%@#ggfwEFfewafvvre", source: token });
 		const key = spy.args[1][0];
-		let res = await chai.request(server)
+		res = await agent
 			.post(confirmEmail)
 			.send({ key, email });
+		res = await agent
+			.post("/session/logout");
+		console.log(res.body);
 		user = await users.findOne({ email });
-
 	});
 	describe("-- Buying a 5 pack --", () => {
 		it("Should return 200", async () => {
 			// Setup
 			const agent = chai.request.agent(server);
-			let res = await agent.post("/new-session/login").send({ email, password });
+			let res = await agent
+				.post("/new-session/login")
+				.send({ email, password });
 			await agent.post("/session/purchase_five_pack");
 			res = await agent.post("/session/purchase_five_pack");
 
@@ -61,6 +69,8 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			user.should.have.property("rmShapeCapacity", 15);
 
 			// Teardown
+			res = await agent
+				.post("/session/logout");
 			agent.close();
 		});
 	});
@@ -70,7 +80,9 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			const agent = chai.request.agent(server);
 			await agent.post("/new-session/login").send({ email, password });
 			user = await users.findOne({ email });
-			const res = await agent.post("/session/update-source").send({ source: "tok_visa" });
+			const res = await agent
+				.post("/session/update-source")
+				.send({ source: "tok_visa" });
 			user = await users.findOne({ email });
 
 			// Verify
@@ -94,9 +106,9 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 
 			// Teardown
 			agent.close();
-		})
-	})
+		});
+	});
 	after(async () => {
 		await users.drop();
-	})
+	});
 });

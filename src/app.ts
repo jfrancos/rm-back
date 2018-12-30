@@ -10,16 +10,17 @@ import _ from "lodash";
 import Mailgun from "mailgun-js";
 import mongodb from "mongodb";
 import Stripe, { ICard, IStripeError, subscriptions } from "stripe";
+import { inspect } from 'util' // or directly
 import validate from "./validate";
-
 dotenv.config();
+
 // type Customer = Stripe.customers.ICustomer;
 
 // Libsodium Init
 const sodiumInit = async () => {
+    await sodium.ready;
     process.removeAllListeners("uncaughtException");
     process.removeAllListeners("unhandledRejection"); // wtf libsodium https://github.com/jedisct1/libsodium.js/issues/177
-    await sodium.ready;
 };
 
 // Express Session Init
@@ -87,7 +88,7 @@ const mongoInit = async () => {
 const app = express();
 const expressInit = (session: express.Handler) => {
     app.use(helmet());
-    app.use("/stripe", bodyParser.raw({ type: "*/*" }));
+    app.post("/stripe", bodyParser.raw({ type: "*/*" }), handleStripeWebhook); // returns customer
     app.use(bodyParser.json());
     app.post("/new-session/*", session, validate);
     app.post("/new-session/login", handleLogin);
@@ -100,8 +101,8 @@ const expressInit = (session: express.Handler) => {
     app.post("/session/cancel-subscription", handleCancelSubscription); // Interacts with Stripe -- returns subscription
     app.post("/session/resend-conf-email", handleResendConfEmail); // == This should be in session ==
     app.post("/signup", session, validate, handleSignup, getUser); // Interacts with Stripe -- returns customer // do i really want session here?
-    app.post("/stripe", handleStripeWebhook); // returns customer
     app.post("/*", updateUser);
+    app.post("session/change-password")
     // app.post("/reset-password", handleResetPassword);
     // app.post("/session/update-shapes", handleUpdateShapes);
     // app.post("/session/get-pdf", handleGetPdf);
@@ -181,6 +182,10 @@ const handleCancelSubscription = async (
 const updateUser = async (req: Request, res: Response) => {
     const customer = req.customer;
     let subscription = req.subscription || customer.subscriptions.data[0];
+    // if (!subscription) {
+    //     res.sendStatus(400);
+    //     return;
+    // }
     const set: { [key: string]: any } = {};
 
     if (subscription) {
@@ -255,9 +260,8 @@ const handlePurchase5Pack = async (req: Request, res: Response) => {
 };
 
 const handleLogout = async (req: Request, res: Response) => {
-    req.session.destroy(() => {
-        res.send();
-    });
+    delete req.session.email;
+    res.send();
 };
 
 const handleGetUser = async (req: Request, res: Response) => {
@@ -316,7 +320,7 @@ const handleSignup = async (
     next();
 };
 
-const sendConfEmail = (email: string) => {
+const sendConfEmail = async (email: string) => {
     const confirmationKey = toBase64(sodium.crypto_auth_keygen());
     const confKeyHash = sodium.crypto_pwhash_str(
         confirmationKey,
@@ -332,8 +336,8 @@ const sendConfEmail = (email: string) => {
         html: `${emailBody1}email=${email}&key=${confirmationKey}${emailBody2}`
     };
     // tslint:enable:object-literal-sort-keys
-    // const mg_response = await mailgun.messages().send(data);
-    // console.log(mg_response);
+    const mgResponse = await mailgun.messages().send(data);
+    console.log(mgResponse);
 };
 
 const handleResendConfEmail = async (
@@ -411,13 +415,14 @@ const handleStripeWebhook = async (
     res: Response,
     next: NextFunction
 ) => {
-    // console.log(JSON.stringify(req.body, null, 4));
+    // console.log(JSON.stringify(inspect(req), null, 4));
     console.log("New Webhook:");
     const sig = req.headers["stripe-signature"];
     let event;
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, webhook.secret);
     } catch (err) {
+        console.log("invalid webhook")
         res.sendStatus(400);
         return;
     }
@@ -507,7 +512,7 @@ function getUsers() {
 }
 
 if (require.main === module) {
-    startServer(process.env.URL);
+    startServer( process.env.URL || process.argv[2] );
 }
 
 module.exports = {
