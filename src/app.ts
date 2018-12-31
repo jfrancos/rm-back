@@ -88,32 +88,41 @@ const mongoInit = async () => {
 const app = express();
 const expressInit = (session: express.Handler) => {
     app.use(helmet());
-    app.post("/stripe", bodyParser.raw({ type: "*/*" }), handleStripeWebhook); // returns customer
-    app.use(bodyParser.json());
-    app.post("/new-session/*", session, validate);
-    app.post("/new-session/login", handleLogin);
-    app.post("/new-session/confirm_email", handleConfirmEmail, getUser); // Interacts with Stripe -- returns subscription
-    app.post("/session/*", session, validate, getUser);
-    app.post("/session/get_user", handleGetUser);
-    app.post("/session/logout", handleLogout);
-    app.post("/session/update-source", handleUpdateSource); // Interacts with Stripe -- returns customer
-    app.post("/session/purchase_five_pack", handlePurchase5Pack); // Interacts with Stripe -- returns charge object
-    app.post("/session/cancel-subscription", handleCancelSubscription); // Interacts with Stripe -- returns subscription
-    app.post("/session/resend-conf-email", handleResendConfEmail); // == This should be in session ==
-    app.post("/signup", session, validate, handleSignup, getUser); // Interacts with Stripe -- returns customer // do i really want session here?
-    app.post("/*", updateUser);
-    app.post("session/change-password")
-    // app.post("/reset-password", handleResetPassword);
-    // app.post("/session/update-shapes", handleUpdateShapes);
-    // app.post("/session/get-pdf", handleGetPdf);
+    app.post("/stripe", bodyParser.raw({ type: "*/*" }),
+        handleStripeWebhook,
+        updateStripeInfo);
+
+    app.use(bodyParser.json(), validate, session, getUser);
+    app.post("/update-source",
+        handleUpdateSource,
+        updateStripeInfo);
+    app.post("/cancel-subscription",
+        handleCancelSubscription,
+        updateStripeInfo);
+    app.post("/signup",
+        handleSignup,
+        updateStripeInfo);
+    app.post("/key-login",
+        handleConfirmEmail,
+        updateStripeInfo); // If it's the first key-login
+
+    app.post("/login", handleLogin);
+    app.post("/get-user", handleGetUser);
+    app.post("/logout", handleLogout);
+    app.post("/purchase-five-pack", handlePurchase5Pack);
+    app.post("/resend-conf-email", handleResendConfEmail);
+    app.post("/update-password");
+    app.post("/set-shape");
+    app.post("/delete-shape");
+    app.post("/get-pdf");
 };
 
 // Start server
 const startServer = async (url: string) => {
     await Promise.all([stripeInit(url), sodiumInit(), mongoInit()]);
     const session = sessionInit();
-    mailgun = mailgunInit();
     expressInit(session);
+    mailgun = mailgunInit();
     const expressServer = app.listen(process.env.PORT);
     expressServer.on("close", async () => {
         await mongoClient.close();
@@ -127,65 +136,22 @@ const startServer = async (url: string) => {
 };
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
-    // let user;
-    const user = await users.findOne({ email: req.session.email });
-
-    // try {
-    //     const email = req.session && req.session.email;
-    //     // const stripeId = req.customer && req.customer.id;
-    //     // user = await users.findOne({ $or: [{ email }, { stripeId }] });
-    // } catch (err) {
-    //     console.log(err);
-    // }
-    if (!user) {
-        res.sendStatus(401);
+    if (!req.session || !req.session.email) {
+        next();
+        return;
+    }
+    req.user = await users.findOne({ email: req.session.email });
+    if (!req.user) {
+        next("Could not find user");
         return; // how would we even get here?
     }
-    req.user = user;
     next();
 };
 
-const handleUpdateSource = async (req: Request, res: Response) => {
-    const stripeId = req.user.stripeId;
-    const { source } = req.value;
-    try {
-        logMessage(req, "Awaiting customer update");
-        req.customer = await stripe.customers.update(stripeId, { source });
-    } catch (err) {
-        handleError(req, res, err.type, err.message);
-        return;
-    }
-    res.send();
-};
-
-const handleCancelSubscription = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-) => {
-    try {
-        req.subscription = await stripe.subscriptions.update(
-            req.user.subscription.id,
-            { cancel_at_period_end: true }
-        );
-        // customer = await stripe.customers.deleteSource(req.user.stripeId, req.user.sourceId); // Is this necessary?
-        // customer = await stripe.customers.retrieve(req.user.stripeId);
-    } catch (err) {
-        res.sendStatus(400);
-        handleError(req, null, err.type, err.message);
-        return;
-    }
-    // console.log(customer)
-    next();
-};
-
-const updateUser = async (req: Request, res: Response) => {
+const updateStripeInfo = async (req: Request, res: Response) => {
     const customer = req.customer;
     let subscription = req.subscription || customer.subscriptions.data[0];
-    // if (!subscription) {
-    //     res.sendStatus(400);
-    //     return;
-    // }
+
     const set: { [key: string]: any } = {};
 
     if (subscription) {
@@ -233,6 +199,139 @@ const updateUser = async (req: Request, res: Response) => {
     res.send();
 };
 
+const handleCancelSubscription = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        req.subscription = await stripe.subscriptions.update(
+            req.user.subscription.id,
+            { cancel_at_period_end: true }
+        );
+        // customer = await stripe.customers.deleteSource(req.user.stripeId, req.user.sourceId); // Is this necessary?
+        // customer = await stripe.customers.retrieve(req.user.stripeId);
+    } catch (err) {
+        res.sendStatus(400);
+        handleError(req, null, err.type, err.message);
+        return;
+    }
+    // console.log(customer)
+    next();
+};
+
+const handleConfirmEmail = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    const { email, key } = req.value;
+    const handleConfError = () => {
+        // don't let on if an email exists
+        handleError(
+            req,
+            res,
+            "EmailConfirmationError",
+            `There was an error confirming ${email}`
+        );
+    };
+
+    // Check if user exists
+    let user = await users.findOne({ email });
+    if (!user) {
+        handleConfError();
+        console.log("MissingUserError", `User ${email} does not exist`);
+        return;
+    }
+
+    // Check if user is already confirmed
+    if (!user.confKeyHash) {
+        handleConfError();
+        console.log("UserAlreadyConfirmedError", "User is already confirmed");
+        return;
+    }
+
+    // Check if key is correct
+    const isValid = sodium.crypto_pwhash_str_verify(user.confKeyHash, key);
+    if (!isValid) {
+        handleConfError();
+        console.log("ConfirmationKeyError", `Key does not match`);
+        return;
+    }
+
+    // Update DB
+    user = await users.findOneAndUpdate({ email }, { $unset: { confKeyHash: "" } });
+    console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
+    // Create Stripe subscription
+    console.log("Awaiting subscription creation");
+    let subscription: subscriptions.ISubscription;
+    try {
+        subscription = await stripe.subscriptions.create({
+            customer: user.value.stripeId,
+            items: [{ plan }]
+        });
+    } catch (err) {
+        res.send(); // ??
+        handleError(req, null, err.type, err.message);
+        return;
+    }
+    console.log("successful subscritpion creation");
+    req.session.email = email;
+    req.subscription = subscription;
+    req.user = user.value;
+    // console.log("ops", user.value);
+    next();
+};
+
+const handleGetUser = async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+        res.sendStatus(401);
+        return;
+    }
+    delete user.pwhash;
+    delete user.stripeId;
+    // delete user.subscriptionId;
+    res.send(user);
+};
+
+const handleLogin = async (req: Request, res: Response) => {
+    const { email, password } = req.value;
+    const user = await users.findOne({ email: req.body.email });
+
+    if (!user) {
+        console.log(`LOGIN_FAILED: [${email}] not in database`);
+        handleError(req, res, "LoginError", "Login Error");
+        return;
+    }
+
+    if (user.confKeyHash) {
+        console.log(`LOGIN_FAILED: [${email}] has not been confirmed`);
+        handleError(
+            req,
+            res,
+            "AccountNotConfirmed",
+            "Account has not been confirmed"
+        );
+        return;
+    }
+
+    const isValid = sodium.crypto_pwhash_str_verify(user.pwhash, password);
+
+    if (!isValid) {
+        console.log(`LOGIN_FAILED: bad password with username [${email}]`);
+        handleError(req, res, "LoginError", "Login Error");
+    }
+    console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
+    req.session.email = email;
+    res.send();
+};
+
+const handleLogout = async (req: Request, res: Response) => {
+    delete req.session.email;
+    res.send();
+};
+
 const handlePurchase5Pack = async (req: Request, res: Response) => {
     try {
         await stripe.charges.create({
@@ -259,17 +358,12 @@ const handlePurchase5Pack = async (req: Request, res: Response) => {
     res.send();
 };
 
-const handleLogout = async (req: Request, res: Response) => {
-    delete req.session.email;
-    res.send();
-};
-
-const handleGetUser = async (req: Request, res: Response) => {
-    const user = req.user;
-    delete user.pwhash;
-    delete user.stripeId;
-    // delete user.subscriptionId;
-    res.send(user);
+const handleResendConfEmail = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    sendConfEmail(req.session.email);
 };
 
 const handleSignup = async (
@@ -279,7 +373,7 @@ const handleSignup = async (
 ) => {
     console.log("ENTERING SETUP");
     const { email, password, source } = req.value;
-    const user = await users.findOne({ email });
+    let user = await users.findOne({ email });
     if (user) {
         handleError(req, res, "DuplicateUserError", "User already exists");
         return;
@@ -299,7 +393,7 @@ const handleSignup = async (
             sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
             sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
-        await users.insertOne({
+        user = await users.insertOne({
             confKeyHash: "",
             email,
             pwhash,
@@ -317,97 +411,21 @@ const handleSignup = async (
     }
     sendConfEmail(email);
     req.session.email = email;
+    req.user = user.ops;
     next();
 };
 
-const sendConfEmail = async (email: string) => {
-    const confirmationKey = toBase64(sodium.crypto_auth_keygen());
-    const confKeyHash = sodium.crypto_pwhash_str(
-        confirmationKey,
-        sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
-        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
-    );
-    users.findOneAndUpdate({ email }, { $set: { confKeyHash } });
-    // tslint:disable:object-literal-sort-keys
-    const data = {
-        from: "RhythMandala <signups@rhythmandala.com>",
-        to: email,
-        subject: "Follow Link to Complete Signup",
-        html: `${emailBody1}email=${email}&key=${confirmationKey}${emailBody2}`
-    };
-    // tslint:enable:object-literal-sort-keys
-    const mgResponse = await mailgun.messages().send(data);
-    console.log(mgResponse);
-};
-
-const handleResendConfEmail = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-) => {
-    sendConfEmail(req.session.email);
-};
-
-const handleConfirmEmail = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-) => {
-    const { email, key } = req.value;
-    const handleConfError = () => {
-        // don't let on if an email exists
-        handleError(
-            req,
-            res,
-            "EmailConfirmationError",
-            `There was an error confirming ${email}`
-        );
-    };
-
-    // Check if user exists
-    const user = await users.findOne({ email });
-    if (!user) {
-        handleConfError();
-        console.log("MissingUserError", `User ${email} does not exist`);
-        return;
-    }
-
-    // Check if user is already confirmed
-    if (!user.confKeyHash) {
-        handleConfError();
-        console.log("UserAlreadyConfirmedError", "User is already confirmed");
-        return;
-    }
-
-    // Check if key is correct
-    const isValid = sodium.crypto_pwhash_str_verify(user.confKeyHash, key);
-    if (!isValid) {
-        handleConfError();
-        console.log("ConfirmationKeyError", `Key does not match`);
-        return;
-    }
-
-    // Update DB
-    await users.findOneAndUpdate({ email }, { $unset: { confKeyHash: "" } });
-    console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
-
-    // Create Stripe subscription
-    console.log("Awaiting subscription creation");
-    let subscription: subscriptions.ISubscription;
+const handleUpdateSource = async (req: Request, res: Response) => {
+    const stripeId = req.user.stripeId;
+    const { source } = req.value;
     try {
-        subscription = await stripe.subscriptions.create({
-            customer: user.stripeId,
-            items: [{ plan }]
-        });
+        logMessage(req, "Awaiting customer update");
+        req.customer = await stripe.customers.update(stripeId, { source });
     } catch (err) {
-        res.send(); // ??
-        handleError(req, null, err.type, err.message);
+        handleError(req, res, err.type, err.message);
         return;
     }
-    console.log("successful subscritpion creation");
-    req.session.email = email;
-    req.subscription = subscription;
-    next();
+    res.send();
 };
 
 const handleStripeWebhook = async (
@@ -445,36 +463,24 @@ const handleStripeWebhook = async (
     next();
 };
 
-const handleLogin = async (req: Request, res: Response) => {
-    const { email, password } = req.value;
-    const user = await users.findOne({ email: req.body.email });
-
-    if (!user) {
-        console.log(`LOGIN_FAILED: [${email}] not in database`);
-        handleError(req, res, "LoginError", "Login Error");
-        return;
-    }
-
-    if (user.confKeyHash) {
-        console.log(`LOGIN_FAILED: [${email}] has not been confirmed`);
-        handleError(
-            req,
-            res,
-            "AccountNotConfirmed",
-            "Account has not been confirmed"
-        );
-        return;
-    }
-
-    const isValid = sodium.crypto_pwhash_str_verify(user.pwhash, password);
-
-    if (!isValid) {
-        console.log(`LOGIN_FAILED: bad password with username [${email}]`);
-        handleError(req, res, "LoginError", "Login Error");
-    }
-    console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
-    req.session.email = email;
-    res.send();
+const sendConfEmail = async (email: string) => {
+    const confirmationKey = toBase64(sodium.crypto_auth_keygen());
+    const confKeyHash = sodium.crypto_pwhash_str(
+        confirmationKey,
+        sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
+        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
+    );
+    users.findOneAndUpdate({ email }, { $set: { confKeyHash } });
+    // tslint:disable:object-literal-sort-keys
+    const data = {
+        from: "RhythMandala <signups@rhythmandala.com>",
+        to: email,
+        subject: "Follow Link to Complete Signup",
+        html: `${emailBody1}email=${email}&key=${confirmationKey}${emailBody2}`
+    };
+    // tslint:enable:object-literal-sort-keys
+    const mgResponse = await mailgun.messages().send(data);
+    console.log(mgResponse);
 };
 
 const toBase64 = (bytes: Uint8Array) => {

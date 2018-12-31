@@ -22,7 +22,7 @@ const signupSchema = joi.object().keys({
     source: joi.string().required()
 });
 
-const confirmEmailSchema = joi.object().keys({
+const keyLoginSchema = joi.object().keys({
     email: joi.string().required(),
     key: joi.string().required()
 });
@@ -35,8 +35,8 @@ const loginSchema = joi.object().keys({
 const emptySchema = joi.object().keys({});
 
 const schemas: { [key: string]: plainJoi.Schema } = {
-    confirmEmailSchema,
     emptySchema,
+    keyLoginSchema,
     loginSchema,
     signupSchema,
     updateSourceSchema,

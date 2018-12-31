@@ -14,8 +14,8 @@ const pwhash = "$argon2id$v=19$m=65536,t=4,p=1$VUnpyWRaGSkJRO5So4WfLg$SWBQIezrpo
 const server = app.app;
 const twoWeeks = 1209600000;
 const signup = "/signup"
-const confirmEmail = "/new-session/confirm_email"
-const login = "/new-session/login"
+const confirmEmail = "/key-login"
+const login = "/login"
 
 chai.use(chaiHttp);
 
@@ -33,7 +33,7 @@ describe("-- Get user --", () => {
 			});
 			await agent.post(login).send({ email, password });
 			
-			const res = await agent.post("/session/get_user");
+			const res = await agent.post("/get-user");
 			res.should.have.status(200);
 
 			users.drop();
@@ -50,7 +50,7 @@ describe("-- Get user --", () => {
 			});
 			await agent.post(login).send({ email, password });
 			
-			const res = await agent.post("/session/get_user").send({ extra: "extra" });
+			const res = await agent.post("/get-user").send({ extra: "extra" });
 			res.should.have.status(400);
 
 			users.drop();
@@ -70,7 +70,7 @@ describe("-- Get user --", () => {
 			await agent.post(login).send({ email, password });
 			clock.restore();
 
-			res = await agent.post("/session/get_user");
+			res = await agent.post("/get-user");
 			console.log(res.body)
 			res.should.have.status(401);
 
@@ -84,7 +84,7 @@ describe("-- Get user --", () => {
 			// Setup
 			const agent = chai.request.agent(server);
 
-			res = await agent.post("/session/get_user");
+			res = await agent.post("/get-user");
 			res.should.have.status(401);
 			// console.log(res)
 

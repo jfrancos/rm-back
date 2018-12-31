@@ -12,7 +12,7 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-const confirmEmail = "/new-session/confirm_email"
+const confirmEmail = "/key-login"
 const signup = "/signup"
 
 const server = app.app;

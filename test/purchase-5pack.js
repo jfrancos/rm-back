@@ -12,7 +12,7 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-const confirmEmail = "/new-session/confirm_email";
+const confirmEmail = "/key-login";
 const signup = "/signup";
 const logout = "/logout";
 const login = "/login";
@@ -46,7 +46,7 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			.post(confirmEmail)
 			.send({ key, email });
 		res = await agent
-			.post("/session/logout");
+			.post("/logout");
 		console.log(res.body);
 		user = await users.findOne({ email });
 	});
@@ -55,10 +55,10 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			// Setup
 			const agent = chai.request.agent(server);
 			let res = await agent
-				.post("/new-session/login")
+				.post("/login")
 				.send({ email, password });
-			await agent.post("/session/purchase_five_pack");
-			res = await agent.post("/session/purchase_five_pack");
+			await agent.post("/purchase-five-pack");
+			res = await agent.post("/purchase-five-pack");
 
 			user = await users.findOne({ email });
 
@@ -70,7 +70,7 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 
 			// Teardown
 			res = await agent
-				.post("/session/logout");
+				.post("/logout");
 			agent.close();
 		});
 	});
@@ -78,10 +78,10 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 		it("Should return 200", async () => {
 			// Setup
 			const agent = chai.request.agent(server);
-			await agent.post("/new-session/login").send({ email, password });
+			await agent.post("/login").send({ email, password });
 			user = await users.findOne({ email });
 			const res = await agent
-				.post("/session/update-source")
+				.post("/update-source")
 				.send({ source: "tok_visa" });
 			user = await users.findOne({ email });
 
@@ -96,9 +96,9 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 		it("Should return 200", async () => {
 			// Setup
 			const agent = chai.request.agent(server);
-			await agent.post("/new-session/login").send({ email, password });
+			await agent.post("/login").send({ email, password });
 			user = await users.findOne({ email });
-			const res = await agent.post("/session/cancel-subscription");
+			const res = await agent.post("/cancel-subscription");
 			user = await users.findOne({ email });
 
 			// Verify

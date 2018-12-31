@@ -32,17 +32,17 @@ describe("-- Login --", () => {
 
 			const agent = chai.request.agent(server);
 			let res = await agent
-				.post("/new-session/login")
+				.post("/login")
 				.send({ email, password });
 
 			res.should.have.status(200);
 			res.should.have.cookie('connect.sid')
-			res = await agent.post("/session/get_user");
+			res = await agent.post("/get-user");
 			res.should.have.status(200);
 			// console.log(JSON.stringify(res, null, 4));
-			res = await agent.post("/session/logout");
+			res = await agent.post("/logout");
 			res.should.have.status(200);
-			res = await agent.post("/session/get_user");
+			res = await agent.post("/get-user");
 			res.should.have.status(401);
 
 			users.drop();
@@ -60,7 +60,7 @@ describe("-- Login --", () => {
 			const agent = chai.request.agent(server);
 
 			let res = await agent
-				.post("/new-session/login")
+				.post("/login")
 				.send({ email, password: 'badpassword' });
 			res.should.have.status(400);
 			res.should.not.have.cookie('connect.sid')
@@ -80,7 +80,7 @@ describe("-- Login --", () => {
 			const agent = chai.request.agent(server);
 
 			let res = await agent
-				.post("/new-session/login")
+				.post("/login")
 				.send({ email: 'bad@username.com', password });
 			res.should.have.status(400);
 			res.should.not.have.cookie('connect.sid')
@@ -101,7 +101,7 @@ describe("-- Login --", () => {
 
 			const agent = chai.request.agent(server);
 			let res = await agent
-				.post("/new-session/login")
+				.post("/login")
 				.send({ email, password });
 			res.should.have.status(400);
 			res.should.not.have.cookie('connect.sid')
