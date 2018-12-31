@@ -12,7 +12,7 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-const confirmEmail = "/key-login"
+const confirmEmail = "/confirm-email"
 const signup = "/signup"
 
 const server = app.app;
@@ -154,19 +154,6 @@ describe("--- TESTING EMAIL CONFIRMATION ---", () => {
 			await users.drop();
 		});
 	});
-
-	// describe("timing test", () => {
-	// 	it ('asdf', async () => {
-	// 		await new Promise(resolve =>
-	// 			setTimeout(resolve, 3000)
-	// 		);
-	// 		after(async () => {
-	// 			await new Promise(resolve =>
-	// 				setTimeout(resolve, 2000)
-	// 			);
-	// 		});
-	// 	}).timeout(4000);
-	// })
 
 	describe("-- Confirming a newly created account with tok_chargeCustomerFail --", () => {
 		it("Should return 200", async () => {

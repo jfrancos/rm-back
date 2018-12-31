@@ -124,7 +124,7 @@ describe("--- TESTING SIGNUP ---", () => {
       res.should.have.status(200);
 
       // Teardown
-      //users.drop();
+      users.drop();
     });
   });
 });

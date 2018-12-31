@@ -18,7 +18,7 @@ chai.use(chaiHttp);
 
 let users;
 
-before(() => (users = app.getUsers())); // This depends on mochaInit.js to work
+before(() => (users = app.getUsers()));
 
 describe("-- Login --", () => {
 	describe("- Successful login and logout -", () => {
@@ -44,8 +44,9 @@ describe("-- Login --", () => {
 			res.should.have.status(200);
 			res = await agent.post("/get-user");
 			res.should.have.status(401);
+			// console.log(users);
 
-			users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});	
@@ -65,7 +66,7 @@ describe("-- Login --", () => {
 			res.should.have.status(400);
 			res.should.not.have.cookie('connect.sid')
 
-			users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});
@@ -85,7 +86,7 @@ describe("-- Login --", () => {
 			res.should.have.status(400);
 			res.should.not.have.cookie('connect.sid')
 
-			users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});
@@ -106,7 +107,7 @@ describe("-- Login --", () => {
 			res.should.have.status(400);
 			res.should.not.have.cookie('connect.sid')
 
-			users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});

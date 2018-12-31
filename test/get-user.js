@@ -14,7 +14,7 @@ const pwhash = "$argon2id$v=19$m=65536,t=4,p=1$VUnpyWRaGSkJRO5So4WfLg$SWBQIezrpo
 const server = app.app;
 const twoWeeks = 1209600000;
 const signup = "/signup"
-const confirmEmail = "/key-login"
+const confirmEmail = "/confirm-email"
 const login = "/login"
 
 chai.use(chaiHttp);

@@ -22,7 +22,7 @@ const signupSchema = joi.object().keys({
     source: joi.string().required()
 });
 
-const keyLoginSchema = joi.object().keys({
+const confirmEmailSchema = joi.object().keys({ // let's go back to calling this confirm-email
     email: joi.string().required(),
     key: joi.string().required()
 });
@@ -32,13 +32,28 @@ const loginSchema = joi.object().keys({
     password: joi.string().required()
 });
 
+const updatePasswordSchema = joi.object().keys({ // should invalidate all sessions for user
+    accessToken: joi.string(),
+    email: joi.string(),
+    newPassword: joi.string().required(),
+    oldPassword: joi.string(),
+}).without("oldPassword", ["accessToken", "email"])
+    .and("accessToken", "email")
+    .xor("oldPassword", "accessToken");
+
+const resetPasswordSchema = joi.object().keys({
+    email: joi.string().email().required()
+})
+
 const emptySchema = joi.object().keys({});
 
 const schemas: { [key: string]: plainJoi.Schema } = {
+    confirmEmailSchema,
     emptySchema,
-    keyLoginSchema,
     loginSchema,
+    resetPasswordSchema,
     signupSchema,
+    updatePasswordSchema,
     updateSourceSchema,
 };
 

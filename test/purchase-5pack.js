@@ -12,7 +12,7 @@ const email = "justinfrancos@gmail.com";
 const password = "ifthisislongenoughdictionarywordsarefine";
 const token = "tok_visa_debit";
 
-const confirmEmail = "/key-login";
+const confirmEmail = "/confirm-email";
 const signup = "/signup";
 const logout = "/logout";
 const login = "/login";
@@ -23,7 +23,7 @@ chai.use(chaiHttp);
 chai.use(sinonChai);
 
 let users;
-before(async () => {
+before(() => {
 	users = app.getUsers();
 }); // This depends on mochaInit.js to work
 
@@ -49,6 +49,7 @@ describe("--- TESTING RHYTHMANDALA-SPECIFIC ENDPOINTS ---", () => {
 			.post("/logout");
 		console.log(res.body);
 		user = await users.findOne({ email });
+		sodium.crypto_pwhash_str.restore();
 	});
 	describe("-- Buying a 5 pack --", () => {
 		it("Should return 200", async () => {

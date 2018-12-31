@@ -10,7 +10,7 @@ import _ from "lodash";
 import Mailgun from "mailgun-js";
 import mongodb from "mongodb";
 import Stripe, { ICard, IStripeError, subscriptions } from "stripe";
-import { inspect } from 'util' // or directly
+import { inspect } from "util"; // or directly
 import validate from "./validate";
 dotenv.config();
 
@@ -72,46 +72,47 @@ const stripeInit = async (url: string) => {
 // Mongo Init
 let mongoClient: mongodb.MongoClient;
 let users: mongodb.Collection;
-let shapes: mongodb.Collection;
+let pwResetTokens: mongodb.Collection;
 const mongoInit = async () => {
     mongoClient = await mongodb.connect(
         process.env.MONGODB_URI,
         { useNewUrlParser: true }
     );
-    users = mongoClient.db().collection("users");
-    shapes = mongoClient.db().collection("shapes");
+    users = await mongoClient.db().collection("users");
+    pwResetTokens = await mongoClient.db().collection("pwResetTokens");
     console.log("creating index");
     await users.createIndex({ email: 1 }, { unique: true });
+    await pwResetTokens.createIndex({ expires: 1 }, { expireAfterSeconds: 0 });
 };
 
 // Express Init
 const app = express();
 const expressInit = (session: express.Handler) => {
     app.use(helmet());
-    app.post("/stripe", bodyParser.raw({ type: "*/*" }),
+    app.post(
+        "/stripe",
+        bodyParser.raw({ type: "*/*" }),
         handleStripeWebhook,
-        updateStripeInfo);
+        updateStripeInfo
+    );
 
     app.use(bodyParser.json(), validate, session, getUser);
-    app.post("/update-source",
-        handleUpdateSource,
-        updateStripeInfo);
-    app.post("/cancel-subscription",
+    app.post("/update-source", handleUpdateSource, updateStripeInfo);
+    app.post(
+        "/cancel-subscription",
         handleCancelSubscription,
-        updateStripeInfo);
-    app.post("/signup",
-        handleSignup,
-        updateStripeInfo);
-    app.post("/key-login",
-        handleConfirmEmail,
-        updateStripeInfo); // If it's the first key-login
+        updateStripeInfo
+    );
+    app.post("/signup", handleSignup, updateStripeInfo);
+    app.post("/confirm-email", handleConfirmEmail, updateStripeInfo);
 
     app.post("/login", handleLogin);
     app.post("/get-user", handleGetUser);
     app.post("/logout", handleLogout);
     app.post("/purchase-five-pack", handlePurchase5Pack);
     app.post("/resend-conf-email", handleResendConfEmail);
-    app.post("/update-password");
+    app.post("/update-password", wrapAsync(handleUpdatePassword));
+    app.post("/reset-password", handleResetPassword);
     app.post("/set-shape");
     app.post("/delete-shape");
     app.post("/get-pdf");
@@ -260,7 +261,10 @@ const handleConfirmEmail = async (
     }
 
     // Update DB
-    user = await users.findOneAndUpdate({ email }, { $unset: { confKeyHash: "" } });
+    user = await users.findOneAndUpdate(
+        { email },
+        { $unset: { confKeyHash: "" } }
+    );
     console.log(`EMAIL_CONFIRMATION_SUCCESSFUL: with email [${email}]`);
     // Create Stripe subscription
     console.log("Awaiting subscription creation");
@@ -295,7 +299,7 @@ const handleGetUser = async (req: Request, res: Response) => {
     res.send(user);
 };
 
-const handleLogin = async (req: Request, res: Response) => {
+const handleLogin = async (req: Request, res: Response, next: NextFunction) => {
     const { email, password } = req.value;
     const user = await users.findOne({ email: req.body.email });
 
@@ -320,6 +324,7 @@ const handleLogin = async (req: Request, res: Response) => {
 
     if (!isValid) {
         console.log(`LOGIN_FAILED: bad password with username [${email}]`);
+        // next("Login Error");
         handleError(req, res, "LoginError", "Login Error");
     }
     console.log(`LOGIN_SUCCESSFUL: with username [${email}]`);
@@ -389,7 +394,7 @@ const handleSignup = async (
     logMessage(req, `Successful signup with username [${email}]`);
     try {
         const pwhash = sodium.crypto_pwhash_str(
-            req.body.password,
+            password,
             sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
             sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
         );
@@ -413,6 +418,37 @@ const handleSignup = async (
     req.session.email = email;
     req.user = user.ops;
     next();
+};
+
+const handleUpdatePassword = async (req: Request, res: Response) => {
+    const { oldPassword, newPassword, accessToken, email } = req.value;
+    let isValid;
+    if (accessToken) {
+        try {
+            const hash = (await pwResetTokens.findOne({
+                email,
+                expires: { $gt: new Date() }
+            })).pwResetHash;
+            console.log(hash);
+            isValid = sodium.crypto_pwhash_str_verify(hash, accessToken);
+        } catch (err) {
+            res.sendStatus(400);
+            return;
+        }
+    } else {
+        isValid = sodium.crypto_pwhash_str_verify(req.user.pwhash, oldPassword);
+    }
+    if (!isValid) {
+        handleError(req, res, "WrongPassword", "Wrong Password");
+        return;
+    }
+    const pwhash = sodium.crypto_pwhash_str(
+        newPassword,
+        sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
+        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
+    );
+    await users.updateOne({ email: req.session.email }, { $set: { pwhash } });
+    res.send();
 };
 
 const handleUpdateSource = async (req: Request, res: Response) => {
@@ -440,7 +476,7 @@ const handleStripeWebhook = async (
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, webhook.secret);
     } catch (err) {
-        console.log("invalid webhook")
+        console.log("invalid webhook");
         res.sendStatus(400);
         return;
     }
@@ -483,6 +519,36 @@ const sendConfEmail = async (email: string) => {
     console.log(mgResponse);
 };
 
+const handleResetPassword = async (req: Request, res: Response) => {
+    const { email } = req.value;
+    const pwResetBody1 = `<p>Dear Rhythm Aficionado, \
+    <p>Somebody (hopefully you) just requested a password reset for the \
+    account `;
+    const pwResetBody2 = `.  <a href='https://app.rhythmandala.com/reset-password?`;
+    const pwResetBody3 = `'><p>Click here to continue to the password reset \
+page</a>`;
+    const pwResetKey = toBase64(sodium.crypto_auth_keygen());
+    const pwResetHash = sodium.crypto_pwhash_str(
+        pwResetKey,
+        sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
+        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
+    );
+    const expires = new Date(Date.now() + 60 * 60 * 1000);
+    await pwResetTokens.deleteMany({ email });
+    await pwResetTokens.insertOne({ email, pwResetHash, expires });
+    // tslint:disable:object-literal-sort-keys
+    const data = {
+        from: "RhythMandala <support@rhythmandala.com>",
+        to: email,
+        subject: "Follow the link to reset your password",
+        html: `${pwResetBody1}${email}${pwResetBody2}email=${email}&accessToken=${pwResetKey}${pwResetBody3}`
+    };
+    // tslint:enable:object-literal-sort-keys
+    const mgResponse = await mailgun.messages().send(data);
+    console.log(mgResponse);
+    res.send();
+};
+
 const toBase64 = (bytes: Uint8Array) => {
     return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING);
 };
@@ -498,6 +564,18 @@ const handleError = (
     if (res) {
         res.status(400).json({ code, message });
     }
+};
+
+const wrapAsync = (
+    fn: (    // https://thecodebarbarian.com/80-20-guide-to-express-error-handling
+        req: Request,
+        res: Response,
+        next: NextFunction
+    ) => { catch: (next: NextFunction) => {} }
+) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+        fn(req, res, next).catch(next);
+    };
 };
 
 const logMessage = (req: Request, message: string) => {
@@ -518,7 +596,7 @@ function getUsers() {
 }
 
 if (require.main === module) {
-    startServer( process.env.URL || process.argv[2] );
+    startServer(process.argv[2] || process.env.URL);
 }
 
 module.exports = {
