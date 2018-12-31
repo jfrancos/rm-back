@@ -3,30 +3,35 @@
 const app = require("../dist/app");
 const mongodb = require("mongodb");
 const ngrok = require("ngrok");
+const inspect = require("util").inspect; // or directly
+
 require("dotenv").config;
 
 before(async () => {
   process.removeAllListeners("uncaughtException");
   process.removeAllListeners("unhandledRejection");
   let mongoClient;
-    mongoClient = await mongodb.connect(
-      process.env.MONGODB_URI,
-      { useNewUrlParser: true }
-    );
+  mongoClient = await mongodb.connect(
+    process.env.MONGODB_URI,
+    { useNewUrlParser: true }
+  );
 
-  // console.log(mongoClient.db().listCollections());
+  try {
+    await mongoClient.db().collection("sessions").drop();
+    console.log('Dropped "sessions" collection');
+  } catch (err) {}
+  try {
+    await mongoClient.db().collection("users").drop();
+    console.log('Dropped "users" collection');
+  } catch (err) {}
 
-  const sessions = mongoClient.db().collection("sessions");
-  sessions && sessions.drop();
-  const users = mongoClient.db().collection("users");
-  users && users.drop();
   let url;
   try {
     url = await ngrok.connect(process.env.PORT);
   } catch (err) {
     console.log(err);
   }
-  console.log("url", url);
+  console.log("Listening for webhooks at", url);
   await app.startServer(url);
 });
 
