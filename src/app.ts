@@ -113,10 +113,31 @@ const expressInit = (session: express.Handler) => {
     app.post("/resend-conf-email", handleResendConfEmail);
     app.post("/update-password", wrapAsync(handleUpdatePassword));
     app.post("/reset-password", handleResetPassword);
-    app.post("/set-shape");
-    app.post("/delete-shape");
+    app.post("/set-shape", handleSetShape);
+    app.post("/unset-shape", handleUnsetShape);
     app.post("/get-pdf");
 };
+
+const handleSetShape = async (req: Request, res: Response) => {
+    const { name, shape } = req.value;
+    const shapeNames = Object.keys(req.user.rhythMandala.shapes);
+    if ( !shapeNames.includes(name) && shapeNames.length >= req.user.rhythMandala.shapeCapacity ) {
+        res.sendStatus(400);
+        return
+    }
+    const path = `rhythMandala.shapes.${name}`
+    const email = req.session.email
+    users.updateOne({ email }, { $set: { [path]: shape}} );
+    res.send();
+}
+
+const handleUnsetShape = async (req: Request, res: Response) => {
+    const { name } = req.value;
+    const path = `rhythMandala.shapes.${name}`
+    const email = req.session.email
+    users.updateOne({ email }, { $unset: { [path]: ""}} );
+    res.send();
+}
 
 // Start server
 const startServer = async (url: string) => {
@@ -402,10 +423,10 @@ const handleSignup = async (
             confKeyHash: "",
             email,
             pwhash,
+            rhythMandala: {shapes:{}, extraPrints: 0, monthlyPrints: 0, shapeCapacity: 0},
             rmExtraPrints: 0,
             rmMonthlyPrints: 0,
             rmShapeCapacity: 0,
-            rmShapes: {},
             source: {},
             stripeId: req.customer.id,
             subscription: { current_period_end: 0 }

@@ -45,6 +45,22 @@ const resetPasswordSchema = joi.object().keys({
     email: joi.string().email().required()
 })
 
+const setShapeSchema = joi.object().keys({
+    name: joi.string(),
+    shape: joi.object().keys({
+        frameColor: joi.string(),
+        shapes: joi.array().items(joi.object().keys({
+            color: joi.string(),
+            cycle: joi.number(),
+            subdivisions: joi.array().items(joi.number())
+        }))
+    })
+})
+
+const unsetShapeSchema = joi.object().keys({
+    name: joi.string()
+})
+
 const emptySchema = joi.object().keys({});
 
 const schemas: { [key: string]: plainJoi.Schema } = {
@@ -52,7 +68,9 @@ const schemas: { [key: string]: plainJoi.Schema } = {
     emptySchema,
     loginSchema,
     resetPasswordSchema,
+    setShapeSchema,
     signupSchema,
+    unsetShapeSchema,
     updatePasswordSchema,
     updateSourceSchema,
 };
