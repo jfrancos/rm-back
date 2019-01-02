@@ -9,6 +9,7 @@ import sodium from "libsodium-wrappers-sumo";
 import _ from "lodash";
 import Mailgun from "mailgun-js";
 import mongodb from "mongodb";
+import PDFDocument from "pdfkit";
 import Stripe, { ICard, IStripeError, subscriptions } from "stripe";
 import { inspect } from "util"; // or directly
 import validate from "./validate";
@@ -115,29 +116,66 @@ const expressInit = (session: express.Handler) => {
     app.post("/reset-password", handleResetPassword);
     app.post("/set-shape", handleSetShape);
     app.post("/unset-shape", handleUnsetShape);
-    app.post("/get-pdf");
+    app.post("/get-pdf", handleGetPdf);
+};
+
+const handleGetPdf = async (req: Request, res: Response) => {
+    // 0.306
+    const { name } = req.value;
+    const email = req.session.email;
+    const shape = req.user.rhythMandala.shapes[name];
+    const doc = new PDFDocument({ layout: "landscape" });
+    const xSide = 792;
+    const ySide = 612;
+    const xCenter = xSide / 2;
+    const yCenter = ySide / 2;
+    const margin = 20;
+    const radius = yCenter - margin;
+    doc.circle(xCenter, yCenter, radius)
+        .lineWidth(4)
+        .stroke(shape.frameColor);
+
+    for (const subshape of shape.shapes) {
+        const points = [];
+        for (const vertex of subshape.subdivisions) {
+            const theta = ((vertex - 1) * 2 * Math.PI) / subshape.cycle;
+            const pX = Math.sin(theta) * radius + xCenter;
+            const pY = (1 - Math.cos(theta)) * radius + yCenter - radius;
+            points.push([pX, pY]);
+        }
+        (doc.polygon as any)(...points)
+        .lineWidth(1.5)
+        .stroke(subshape.color);
+        points.forEach( point => doc.circle(point[0], point[1], 4).fillAndStroke(shape.frameColor, "black").lineWidth(1.5));
+
+    }
+    doc.end();
+    doc.pipe(res);
 };
 
 const handleSetShape = async (req: Request, res: Response) => {
     const { name, shape } = req.value;
     const shapeNames = Object.keys(req.user.rhythMandala.shapes);
-    if ( !shapeNames.includes(name) && shapeNames.length >= req.user.rhythMandala.shapeCapacity ) {
+    if (
+        !shapeNames.includes(name) &&
+        shapeNames.length >= req.user.rhythMandala.shapeCapacity
+    ) {
         res.sendStatus(400);
-        return
+        return;
     }
-    const path = `rhythMandala.shapes.${name}`
-    const email = req.session.email
-    users.updateOne({ email }, { $set: { [path]: shape}} );
+    const path = `rhythMandala.shapes.${name}`;
+    const email = req.session.email;
+    users.updateOne({ email }, { $set: { [path]: shape } });
     res.send();
-}
+};
 
 const handleUnsetShape = async (req: Request, res: Response) => {
     const { name } = req.value;
-    const path = `rhythMandala.shapes.${name}`
-    const email = req.session.email
-    users.updateOne({ email }, { $unset: { [path]: ""}} );
+    const path = `rhythMandala.shapes.${name}`;
+    const email = req.session.email;
+    users.updateOne({ email }, { $unset: { [path]: "" } });
     res.send();
-}
+};
 
 // Start server
 const startServer = async (url: string) => {
@@ -423,7 +461,12 @@ const handleSignup = async (
             confKeyHash: "",
             email,
             pwhash,
-            rhythMandala: {shapes:{}, extraPrints: 0, monthlyPrints: 0, shapeCapacity: 0},
+            rhythMandala: {
+                extraPrints: 0,
+                monthlyPrints: 0,
+                shapeCapacity: 0,
+                shapes: {},
+            },
             rmExtraPrints: 0,
             rmMonthlyPrints: 0,
             rmShapeCapacity: 0,
@@ -588,7 +631,8 @@ const handleError = (
 };
 
 const wrapAsync = (
-    fn: (    // https://thecodebarbarian.com/80-20-guide-to-express-error-handling
+    fn: (
+        // https://thecodebarbarian.com/80-20-guide-to-express-error-handling
         req: Request,
         res: Response,
         next: NextFunction

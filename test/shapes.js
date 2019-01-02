@@ -37,7 +37,7 @@ describe("-- SHAPES --", () => {
 				.send({email, password});
 				await agent
 					.post("/set-shape")
-					.send({name: "hello", shape: {shapes: [{"color":"#00ffff","cycle":6,"subdivisions":[1,2,3,4,5,6]},{"color":"#0000ff","cycle":6,"subdivisions":[1,3,5]} ], frameColor: "black"}})
+					.send({name: "hello", shape: {shapes: [{"color":"#00ff00","cycle":6,"subdivisions":[1,2,3,4,5,6]},{"color":"#0000ff","cycle":6,"subdivisions":[1,3,5]} ], frameColor: "black"}})
 await agent
 				.post("/set-shape")
 				.send({name: "hellof", shape: {shapes: [{"color":"#00ffff","cycle":6,"subdivisions":[1,2,3,4,5,6]},{"color":"#0000ff","cycle":6,"subdivisions":[1,3,5]} ], frameColor: "black"}})
@@ -61,7 +61,11 @@ res = await agent
 				await agent
 					.post("/unset-shape")
 					.send({name: "hellof"})
-			//await users.drop();
+				res = await agent
+					.post("/get-pdf")
+					.send({name: "hello"});
+				console.log(res.body);
+			// await users.drop();
 			agent.close();
 		});
 	});	

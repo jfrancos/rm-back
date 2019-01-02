@@ -61,11 +61,16 @@ const unsetShapeSchema = joi.object().keys({
     name: joi.string()
 })
 
+const getPdfSchema = joi.object().keys({
+    name: joi.string()
+})
+
 const emptySchema = joi.object().keys({});
 
 const schemas: { [key: string]: plainJoi.Schema } = {
     confirmEmailSchema,
     emptySchema,
+    getPdfSchema,
     loginSchema,
     resetPasswordSchema,
     setShapeSchema,

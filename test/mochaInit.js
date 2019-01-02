@@ -17,7 +17,7 @@ before(async () => {
   );
 
   try {
-    await mongoClient.db().collection("sessions").drop();
+  //  await mongoClient.db().collection("sessions").drop();
     console.log('Dropped "sessions" collection');
   } catch (err) {}
   try {
