@@ -36,7 +36,7 @@ describe("-- Get user --", () => {
 			const res = await agent.post("/get-user");
 			res.should.have.status(200);
 
-			users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});
@@ -53,7 +53,7 @@ describe("-- Get user --", () => {
 			const res = await agent.post("/get-user").send({ extra: "extra" });
 			res.should.have.status(400);
 
-			users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});
@@ -74,7 +74,7 @@ describe("-- Get user --", () => {
 			console.log(res.body)
 			res.should.have.status(401);
 
-			users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});

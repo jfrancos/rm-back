@@ -15,8 +15,6 @@ import { inspect } from "util"; // or directly
 import validate from "./validate";
 dotenv.config();
 
-// type Customer = Stripe.customers.ICustomer;
-
 // Libsodium Init
 const sodiumInit = async () => {
     await sodium.ready;
@@ -73,17 +71,14 @@ const stripeInit = async (url: string) => {
 // Mongo Init
 let mongoClient: mongodb.MongoClient;
 let users: mongodb.Collection;
-let pwResetTokens: mongodb.Collection;
 const mongoInit = async () => {
     mongoClient = await mongodb.connect(
         process.env.MONGODB_URI,
         { useNewUrlParser: true }
     );
     users = await mongoClient.db().collection("users");
-    pwResetTokens = await mongoClient.db().collection("pwResetTokens");
-    console.log("creating index");
-    await users.createIndex({ email: 1 }, { unique: true });
-    await pwResetTokens.createIndex({ expires: 1 }, { expireAfterSeconds: 0 });
+    console.log("creating indices");
+    await users.createIndexes([{key: {email: 1}, unique: true}, {key: {stripeId: "hashed"}}, {key: {"pwReset.expires": 1}}])
 };
 
 // Express Init
@@ -97,10 +92,11 @@ const expressInit = (session: express.Handler) => {
         updateStripeInfo
     );
 
-    app.use(bodyParser.json(), validate, session, getUser);
-    app.post("/update-source", handleUpdateSource, updateStripeInfo);
+    app.use(bodyParser.json(), validate, session);
+    app.post("/update-source", getUser, handleUpdateSource, updateStripeInfo);
     app.post(
         "/cancel-subscription",
+        getUser,
         handleCancelSubscription,
         updateStripeInfo
     );
@@ -108,33 +104,34 @@ const expressInit = (session: express.Handler) => {
     app.post("/confirm-email", handleConfirmEmail, updateStripeInfo);
 
     app.post("/login", handleLogin);
-    app.post("/get-user", handleGetUser);
-    app.post("/logout", handleLogout);
-    app.post("/purchase-five-pack", handlePurchase5Pack);
-    app.post("/resend-conf-email", handleResendConfEmail);
+    app.post("/get-user", getUser, handleGetUser);
+    app.post("/logout", getUser, handleLogout);
+    app.post("/purchase-five-pack", getUser, handlePurchase5Pack);
+    app.post("/resend-conf-email", getUser, handleResendConfEmail);
     app.post("/update-password", wrapAsync(handleUpdatePassword));
     app.post("/reset-password", handleResetPassword);
-    app.post("/set-shape", handleSetShape);
-    app.post("/unset-shape", handleUnsetShape);
-    app.post("/get-pdf", handleGetPdf);
+    app.post("/set-shape", getUser, handleSetShape);
+    app.post("/unset-shape", getUser, handleUnsetShape);
+    app.post("/get-pdf", getUser, handleGetPdf);
+    app.post("/get-demo");
 };
 
 const handleGetPdf = async (req: Request, res: Response) => {
     // 0.306
     const { name } = req.value;
-    const email = req.session.email;
+    // const email = req.session.email;
     const shape = req.user.rhythMandala.shapes[name];
     const doc = new PDFDocument({ layout: "landscape" });
-    const xSide = 792;
-    const ySide = 612;
-    const xCenter = xSide / 2;
-    const yCenter = ySide / 2;
+    const xCenter = doc.page.width / 2;
+    const yCenter = doc.page.height / 2;
+    const thinStroke = 1.5;
+    const thickStroke = 4;
     const margin = 20;
     const radius = yCenter - margin;
-    doc.circle(xCenter, yCenter, radius)
-        .lineWidth(4)
-        .stroke(shape.frameColor);
 
+    doc.circle(xCenter, yCenter, radius)
+        .lineWidth(thickStroke)
+        .stroke(shape.frameColor);
     for (const subshape of shape.shapes) {
         const points = [];
         for (const vertex of subshape.subdivisions) {
@@ -144,10 +141,14 @@ const handleGetPdf = async (req: Request, res: Response) => {
             points.push([pX, pY]);
         }
         (doc.polygon as any)(...points)
-        .lineWidth(1.5)
-        .stroke(subshape.color);
-        points.forEach( point => doc.circle(point[0], point[1], 4).fillAndStroke(shape.frameColor, "black").lineWidth(1.5));
-
+            .lineWidth(thinStroke)
+            .stroke(subshape.color);
+        points.forEach(point =>
+            doc
+                .circle(point[0], point[1], thickStroke)
+                .fillAndStroke(shape.frameColor, "black")
+                .lineWidth(thinStroke)
+        );
     }
     doc.end();
     doc.pipe(res);
@@ -197,10 +198,11 @@ const startServer = async (url: string) => {
 
 const getUser = async (req: Request, res: Response, next: NextFunction) => {
     if (!req.session || !req.session.email) {
-        next();
+        res.sendStatus(401);
         return;
     }
     req.user = await users.findOne({ email: req.session.email });
+    console.log("user", req.user);
     if (!req.user) {
         next("Could not find user");
         return; // how would we even get here?
@@ -264,7 +266,7 @@ const handleCancelSubscription = async (
     res: Response,
     next: NextFunction
 ) => {
-    try {
+    try { 
         req.subscription = await stripe.subscriptions.update(
             req.user.subscription.id,
             { cancel_at_period_end: true }
@@ -465,7 +467,7 @@ const handleSignup = async (
                 extraPrints: 0,
                 monthlyPrints: 0,
                 shapeCapacity: 0,
-                shapes: {},
+                shapes: {}
             },
             rmExtraPrints: 0,
             rmMonthlyPrints: 0,
@@ -487,25 +489,31 @@ const handleSignup = async (
 const handleUpdatePassword = async (req: Request, res: Response) => {
     const { oldPassword, newPassword, accessToken, email } = req.value;
     let isValid;
+    if (oldPassword && !req.session.email) {
+        res.sendStatus(401);
+        return;
+    }
     if (accessToken) {
-        try {
-            const hash = (await pwResetTokens.findOne({
-                email,
-                expires: { $gt: new Date() }
-            })).pwResetHash;
-            console.log(hash);
-            isValid = sodium.crypto_pwhash_str_verify(hash, accessToken);
-        } catch (err) {
+        const user = await users.findOne({
+            email,
+            "pwReset.expires": { $gt: new Date() }});
+        if (!user) {
             res.sendStatus(400);
             return;
         }
+        const hash = user.pwReset.tokenHash;
+        isValid = sodium.crypto_pwhash_str_verify(hash, accessToken);
     } else {
-        isValid = sodium.crypto_pwhash_str_verify(req.user.pwhash, oldPassword);
+        const hash = (await users.findOne({
+            email: req.session.email
+        })).pwhash;
+        isValid = sodium.crypto_pwhash_str_verify(hash, oldPassword);
     }
     if (!isValid) {
-        handleError(req, res, "WrongPassword", "Wrong Password");
+        res.sendStatus(401);
         return;
     }
+    users.updateOne({ email }, { $unset: {pwReset: "" } });
     const pwhash = sodium.crypto_pwhash_str(
         newPassword,
         sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
@@ -597,9 +605,9 @@ page</a>`;
         sodium.crypto_pwhash_OPSLIMIT_SENSITIVE,
         sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
     );
-    const expires = new Date(Date.now() + 60 * 60 * 1000);
-    await pwResetTokens.deleteMany({ email });
-    await pwResetTokens.insertOne({ email, pwResetHash, expires });
+    const oneHour = 60 * 60 * 1000;
+    const expires = new Date(Date.now() + oneHour);
+    await users.updateOne({ email }, { $set: {"pwReset.tokenHash": pwResetHash, "pwReset.expires": expires }});
     // tslint:disable:object-literal-sort-keys
     const data = {
         from: "RhythMandala <support@rhythmandala.com>",

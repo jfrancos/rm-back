@@ -65,7 +65,7 @@ res = await agent
 					.post("/get-pdf")
 					.send({name: "hello"});
 				console.log(res.body);
-			// await users.drop();
+			await users.drop();
 			agent.close();
 		});
 	});	

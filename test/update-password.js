@@ -32,6 +32,7 @@ describe("-- /update-password --", () => {
 					pwhash,
 				});
 			const agent = chai.request.agent(server);
+			// console.log(users)
 
 			await agent
 				.post("/login")
@@ -39,7 +40,7 @@ describe("-- /update-password --", () => {
 			res = await agent
 				.post("/update-password")
 				.send({ oldPassword: newPassword, newPassword });
-			res.should.have.status(400);
+			res.should.have.status(401);
 			res = await agent
 				.post("/update-password")
 				.send({ oldPassword: password, newPassword });
@@ -97,7 +98,7 @@ describe("-- /update-password --", () => {
 	});
 	describe("Waiting too long to user the accesstoken", () => {
 		it("Should fail", async () => {
-			const clock = sinon.useFakeTimers((new Date()).getTime() - (60 * 60 * 1000) - 1000);
+			const clock = sinon.useFakeTimers((new Date()).getTime() - (60 * 60 * 1000) - 20000);
 			// const clock = sinon.useFakeTimers();
 			await users.insertOne({
 					email,
